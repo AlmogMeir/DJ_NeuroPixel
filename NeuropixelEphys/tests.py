@@ -11,3 +11,5 @@ schema = getSchema.getSchema()
 
 print(dj.list_schemas())
 print(schema.list_tables())
+schema = dj.VirtualModule('EPHYS', conn)
+dj.Diagram(schema).draw()
