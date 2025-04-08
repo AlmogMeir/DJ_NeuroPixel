@@ -161,23 +161,21 @@ class ProbeInsertion(dj.Manual):
     @classmethod
     def auto_generate_entries(cls, session_key):
         """Automatically populate entries in ProbeInsertion table for a session."""
-        session_dir = find_full_path(
-            get_ephys_root_data_dir(), get_session_directory(session_key)
-        )
+        session_dir = find_full_path(get_ephys_root_data_dir(), get_session_directory(session_key))
         # search session dir and determine acquisition software
-        for ephys_pattern, ephys_acq_type in (
-            ("*.ap.meta", "SpikeGLX"),
-            ("*.oebin", "Open Ephys"),
-        ):
-            ephys_meta_filepaths = list(session_dir.rglob(ephys_pattern))
-            if ephys_meta_filepaths:
-                acq_software = ephys_acq_type
-                break
-        else:
-            raise FileNotFoundError(
-                f"Ephys recording data not found!"
-                f" Neither SpikeGLX nor Open Ephys recording files found in: {session_dir}"
-            )
+        # for ephys_pattern in ("*.ap.meta"):
+        #     ephys_meta_filepaths = list(session_dir.rglob(ephys_pattern))
+        #     if ephys_meta_filepaths:
+        #         acq_software = "SpikeGLX"
+        #         break
+        # else:
+        #     raise FileNotFoundError(
+        #         f"Ephys recording data not found!"
+        #         f"SpikeGLX recording files not found in: {session_dir}"
+        #     )
+        
+        # This row is instead of the for loop above
+        ephys_meta_filepaths = list(session_dir.rglob("*.ap.meta"))
 
         probe_list, probe_insertion_list = [], []
         for meta_fp_idx, meta_filepath in enumerate(ephys_meta_filepaths):
@@ -295,19 +293,19 @@ class EphysRecording(dj.Imported):
         )
 
         # Search session dir and determine acquisition software
-        for ephys_pattern, ephys_acq_type in (
-            ("*.ap.meta", "SpikeGLX"),
-            ("*.oebin", "Open Ephys"),
-        ):
-            ephys_meta_filepaths = list(session_dir.rglob(ephys_pattern))
-            if ephys_meta_filepaths:
-                acq_software = ephys_acq_type
-                break
-        else:
-            raise FileNotFoundError(
-                f"Ephys recording data not found in {session_dir}."
-                "Neither SpikeGLX nor Open Ephys recording files found"
-            )
+        # for ephys_pattern in ("*.ap.meta"):
+        #     ephys_meta_filepaths = list(session_dir.rglob(ephys_pattern))
+        #     if ephys_meta_filepaths:
+        #         acq_software = "SpikeGLX"
+        #         break
+        # else:
+        #     raise FileNotFoundError(
+        #         f"Ephys recording data not found in {session_dir}."
+        #         "Neither SpikeGLX nor Open Ephys recording files found"
+        #     )
+
+        # The row below is instead of the loop above
+        ephys_meta_filepaths = list(session_dir.rglob("*.ap.meta"))
 
         supported_probe_types = probe.ProbeType.fetch("probe_type")
 
@@ -347,7 +345,7 @@ class EphysRecording(dj.Imported):
         ephys_recording_entry = {
             **key,
             "electrode_config_hash": econfig_entry["electrode_config_hash"],
-            "acq_software": acq_software,
+            "acq_software": "SpikeGLX",
             "sampling_rate": spikeglx_meta.meta["imSampRate"],
             "recording_datetime": spikeglx_meta.recording_time,
             "recording_duration": (
@@ -442,8 +440,6 @@ class LFP(dj.Imported):
 
     def make(self, key):
         """Populates the LFP tables."""
-        acq_software = (EphysRecording * ProbeInsertion & key).fetch1("acq_software")
-
         electrode_keys, lfp = [], []
 
         spikeglx_meta_filepath = get_spikeglx_meta_filepath(key)
@@ -560,8 +556,22 @@ class CuratedClustering(dj.Imported):
         spike_depths=null : longblob  # (um) array of depths associated with each spike, relative to the (0, 0) of the probe    
         """
 
+        class UnitPosition(dj.Part):
+            definition = """
+                # Estimated unit position in the brain
+                -> master
+                -> CF.CFAnnotationType
+                ---
+                -> LAB.Hemisphere
+                -> LAB.BrainArea
+                -> LAB.SkullReference
+                unit_ml_location= null: decimal(8,3)    # um from ref; right is positive; based on manipulator coordinates (or histology) & probe config
+                unit_ap_location= null: decimal(8,3)    # um from ref; anterior is positive; based on manipulator coordinates (or histology) & probe config
+                unit_dv_location= null: decimal(8,3)    # um from dura; ventral is positive; based on manipulator coordinates (or histology) & probe config
+                """
+
         class UnitComment(dj.Manual):
-            """Single unit properties after clustering and curation.
+            """Single unit comments.
 
             Attributes:
                 Unit (foreign key): Unit primary key.
@@ -574,6 +584,21 @@ class CuratedClustering(dj.Imported):
             unit_comment: varchar(767) 
             ---
             """
+
+        class UnitCellType(dj.Computed):
+            """Single unit cell type.
+
+            Attributes:
+                Unit (foreign key): Unit primary key.
+                CellType (foreign key): name of the cell type.
+            """
+            
+            definition = """
+                #
+                -> master
+                ---
+                -> CellType
+                """
 
     def make(self, key):
         """Automated population of Unit information."""
@@ -590,7 +615,7 @@ class CuratedClustering(dj.Imported):
 
         # Read from kilosort outputs
         kilosort_dataset = kilosort.Kilosort(output_dir)
-        acq_software, sample_rate = (EphysRecording & key).fetch1(
+        _, sample_rate = (EphysRecording & key).fetch1(
             "acq_software", "sampling_rate"
         )
 
@@ -662,7 +687,24 @@ class CuratedClustering(dj.Imported):
         self.insert1(key)
         self.Unit.insert(units, ignore_extra_fields=True)
 
+@schema
+class TrialSpikes(dj.Imported):
+    """Single trial spikes.
 
+            Attributes:
+                Unit (foreign key): Unit primary key.
+                SessionTrial (foreign key): SessionTrial primary key.
+                spike_times (longblob): Spike times for each trial, relative to the beginning of the trial.
+            """
+    
+    definition = """
+        #
+        -> CuratedClustering.Unit
+        -> EXP.SessionTrial
+        ---
+        spike_times: longblob   #(s) spike times for each trial, relative to the beginning of the trial" \
+        """
+    
 @schema
 class WaveformSet(dj.Imported):
     """A set of spike waveforms for units out of a given CuratedClustering.
@@ -737,9 +779,9 @@ class WaveformSet(dj.Imported):
         
         kilosort_dataset = kilosort.Kilosort(output_dir)
 
-        acq_software, probe_serial_number = (
-            EphysRecording * ProbeInsertion & key
-        ).fetch1("acq_software", "probe")
+        # acq_software, probe_serial_number = (
+        #     EphysRecording * ProbeInsertion & key
+        # ).fetch1("acq_software", "probe")
 
         # Get all units
         units = {
@@ -829,44 +871,25 @@ class WaveformSet(dj.Imported):
                 self.PeakWaveform.insert1(unit_peak_waveform, ignore_extra_fields=True)
             if unit_electrode_waveforms:
                 self.Waveform.insert(unit_electrode_waveforms, ignore_extra_fields=True)
-
-
-# @schema
-# class Unit(dj.Imported):
-#     definition = """
-#         -> EPHYS.ElectrodeGroup
-#         unit: smallint
-#         ---
-#         unit_uid: int               # unique across sessions/animals
-#         -> EPHYS.UnitQualityType
-#         unit_channel = null: float  # channel on the electrode for which the unit has the largest amplitude
-#         """
-
-# TODO: For non commented tables, decide which & how to include in the schemas above
-
+                
 @schema
-class UnitCellType(dj.Computed):
+class CellType(dj.Lookup):
+    """Types of cells.
+
+            Attributes:
+                cell_type: cell type name.
+                cell_type_description: text description for the unit.
+            """
+    
     definition = """
         #
-        -> EPHYS.Unit
+        cell_type: varchar(100)
         ---
-        -> EPHYS.CellType
+        cell_type_description: varchar(4000)
         """
-    
-@schema
-class UnitPosition(dj.Part):
-    definition = """
-        # Estimated unit position in the brain
-        -> EPHYS.Unit
-        -> CF.CFAnnotationType
-        ---
-        -> LAB.Hemisphere
-        -> LAB.BrainArea
-        -> LAB.SkullReference
-        unit_ml_location= null: decimal(8,3)    # um from ref; right is positive; based on manipulator coordinates (or histology) & probe config
-        unit_ap_location= null: decimal(8,3)    # um from ref; anterior is positive; based on manipulator coordinates (or histology) & probe config
-        unit_dv_location= null: decimal(8,3)    # um from dura; ventral is positive; based on manipulator coordinates (or histology) & probe config
-        """
+
+
+# TODO: For non commented tables, decide which & how to include in the schemas above
     
 # @schema
 # class UnitQualityType(dj.Lookup):
@@ -905,15 +928,6 @@ class UnitPosition(dj.Part):
 #         spike_times: longblob   #(s) spike times for the entire session (relative to the beginning of the session) 
 #         """
     
-@schema
-class TrialSpikes(dj.Imported):
-    definition = """
-        #
-        -> EPHYS.Unit
-        -> EXP.SessionTrial
-        ---
-        spike_times: longblob   #(s) spike times for each trial, relative to the beginning of the trial" \
-        """
     
 # @schema
 # class ElectrodeGroup(dj.Manual):
@@ -949,15 +963,6 @@ class LabeledTrack(dj.Manual):
         dye_color  : varchar(32)
         """
     
-@schema
-class CellType(dj.Lookup):
-    definition = """
-        #
-        cell_type: varchar(100)
-        ---
-        cell_type_description: varchar(4000)
-        """
-
 @schema
 class Jobs(dj.Jobs):
     definition = """
@@ -1021,7 +1026,7 @@ def get_recording_channels_details(ephys_recording_key: dict) -> np.array:
     """Get details of recording channels for a given recording."""
     channels_details = {}
 
-    acq_software, sample_rate = (EphysRecording & ephys_recording_key).fetch1(
+    _, sample_rate = (EphysRecording & ephys_recording_key).fetch1(
         "acq_software", "sampling_rate"
     )
 
