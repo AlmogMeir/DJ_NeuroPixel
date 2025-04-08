@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 import pathlib
 import importlib
+import inspect
+import re
 
 import dj_connect
 import getSchema
@@ -12,6 +14,34 @@ from .readers import kilosort, spikeglx
 
 from element_interface.utils import dict_to_uuid, find_full_path, find_root_directory
 
+# Below is an alternative to define the functions that not imported properly from element_interface.
+# This is for the case that element_interface failed to install on the env.
+
+"""
+from uuid import uuid4
+from pathlib import Path
+
+def dict_to_uuid(input_dict):
+    # Generate a UUID based on a dictionary.
+    return str(uuid4())
+
+def find_full_path(root_directories, relative_path):
+    # Find the full path given a list of root directories and a relative path.
+    for root_dir in root_directories:
+        full_path = Path(root_dir) / relative_path
+        if full_path.exists():
+            return full_path
+    raise FileNotFoundError(f"File {relative_path} not found in any of the root directories.")
+
+def find_root_directory(root_directories, target_path):
+    # Find the root directory containing the target path.
+    target_path = Path(target_path).resolve()
+    for root_dir in root_directories:
+        root_dir = Path(root_dir).resolve()
+        if target_path.is_relative_to(root_dir):
+            return root_dir
+    raise FileNotFoundError(f"Root directory for {target_path} not found.")
+"""
 
 conn = dj_connect.connectToDataJoint("almog", "simple")
 schema = getSchema.getSchema()
@@ -150,49 +180,30 @@ class ProbeInsertion(dj.Manual):
             )
 
         probe_list, probe_insertion_list = [], []
-        if acq_software == "SpikeGLX":
-            for meta_fp_idx, meta_filepath in enumerate(ephys_meta_filepaths):
-                spikeglx_meta = spikeglx.SpikeGLXMeta(meta_filepath)
+        for meta_fp_idx, meta_filepath in enumerate(ephys_meta_filepaths):
+            spikeglx_meta = spikeglx.SpikeGLXMeta(meta_filepath)
 
-                probe_key = {
-                    "probe_type": spikeglx_meta.probe_model,
+            probe_key = {
+                "probe_type": spikeglx_meta.probe_model,
+                "probe": spikeglx_meta.probe_SN,
+            }
+            if probe_key["probe"] not in [p["probe"] for p in probe_list]:
+                probe_list.append(probe_key)
+
+            probe_dir = meta_filepath.parent
+            try:
+                probe_number = re.search(r"(imec)?\d{1}$", probe_dir.name).group()
+                probe_number = int(probe_number.replace("imec", ""))
+            except AttributeError:
+                probe_number = meta_fp_idx
+
+            probe_insertion_list.append(
+                {
+                    **session_key,
                     "probe": spikeglx_meta.probe_SN,
+                    "insertion_number": int(probe_number),
                 }
-                if probe_key["probe"] not in [p["probe"] for p in probe_list]:
-                    probe_list.append(probe_key)
-
-                probe_dir = meta_filepath.parent
-                try:
-                    probe_number = re.search(r"(imec)?\d{1}$", probe_dir.name).group()
-                    probe_number = int(probe_number.replace("imec", ""))
-                except AttributeError:
-                    probe_number = meta_fp_idx
-
-                probe_insertion_list.append(
-                    {
-                        **session_key,
-                        "probe": spikeglx_meta.probe_SN,
-                        "insertion_number": int(probe_number),
-                    }
-                )
-        elif acq_software == "Open Ephys":
-            loaded_oe = openephys.OpenEphys(session_dir)
-            for probe_idx, oe_probe in enumerate(loaded_oe.probes.values()):
-                probe_key = {
-                    "probe_type": oe_probe.probe_model,
-                    "probe": oe_probe.probe_SN,
-                }
-                if probe_key["probe"] not in [p["probe"] for p in probe_list]:
-                    probe_list.append(probe_key)
-                probe_insertion_list.append(
-                    {
-                        **session_key,
-                        "probe": oe_probe.probe_SN,
-                        "insertion_number": probe_idx,
-                    }
-                )
-        else:
-            raise NotImplementedError(f"Unknown acquisition software: {acq_software}")
+            )
 
         probe.Probe.insert(probe_list, skip_duplicates=True)
         cls.insert(probe_insertion_list, skip_duplicates=True)
@@ -298,171 +309,84 @@ class EphysRecording(dj.Imported):
                 "Neither SpikeGLX nor Open Ephys recording files found"
             )
 
-        if acq_software not in AcquisitionSoftware.fetch("acq_software"):
-            raise NotImplementedError(
-                f"Processing ephys files from acquisition software of type {acq_software} is not yet implemented."
-            )
-
         supported_probe_types = probe.ProbeType.fetch("probe_type")
 
-        if acq_software == "SpikeGLX":
-            for meta_filepath in ephys_meta_filepaths:
-                spikeglx_meta = spikeglx.SpikeGLXMeta(meta_filepath)
-                if str(spikeglx_meta.probe_SN) == inserted_probe_serial_number:
-                    spikeglx_meta_filepath = meta_filepath
-                    break
-            else:
-                raise FileNotFoundError(
-                    "No SpikeGLX data found for probe insertion: {}".format(key)
-                )
-
-            if spikeglx_meta.probe_model not in supported_probe_types:
-                raise NotImplementedError(
-                    f"Processing for neuropixels probe model {spikeglx_meta.probe_model} not yet implemented."
-                )
-
-            probe_type = spikeglx_meta.probe_model
-            electrode_query = probe.ProbeType.Electrode & {"probe_type": probe_type}
-
-            probe_electrodes = {
-                (shank, shank_col, shank_row): key
-                for key, shank, shank_col, shank_row in zip(
-                    *electrode_query.fetch("KEY", "shank", "shank_col", "shank_row")
-                )
-            }  # electrode configuration
-            electrode_group_members = [
-                probe_electrodes[(shank, shank_col, shank_row)]
-                for shank, shank_col, shank_row, _ in spikeglx_meta.shankmap["data"]
-            ]  # recording session-specific electrode configuration
-
-            econfig_entry, econfig_electrodes = generate_electrode_config_entry(
-                probe_type, electrode_group_members
-            )
-
-            ephys_recording_entry = {
-                **key,
-                "electrode_config_hash": econfig_entry["electrode_config_hash"],
-                "acq_software": acq_software,
-                "sampling_rate": spikeglx_meta.meta["imSampRate"],
-                "recording_datetime": spikeglx_meta.recording_time,
-                "recording_duration": (
-                    spikeglx_meta.recording_duration
-                    or spikeglx.retrieve_recording_duration(spikeglx_meta_filepath)
-                ),
-            }
-
-            root_dir = find_root_directory(
-                get_ephys_root_data_dir(), spikeglx_meta_filepath
-            )
-
-            ephys_file_entries = [
-                {
-                    **key,
-                    "file_path": spikeglx_meta_filepath.relative_to(
-                        root_dir
-                    ).as_posix(),
-                }
-            ]
-
-            # Insert channel information
-            # Get channel and electrode-site mapping
-            channel2electrode_map = {
-                recorded_site: probe_electrodes[(shank, shank_col, shank_row)]
-                for recorded_site, (shank, shank_col, shank_row, _) in enumerate(
-                    spikeglx_meta.shankmap["data"]
-                )
-            }
-
-            ephys_channel_entries = [
-                {
-                    **key,
-                    "electrode_config_hash": econfig_entry["electrode_config_hash"],
-                    "channel_idx": channel_idx,
-                    **channel_info,
-                }
-                for channel_idx, channel_info in channel2electrode_map.items()
-            ]
-        elif acq_software == "Open Ephys":
-            dataset = openephys.OpenEphys(session_dir)
-            for serial_number, probe_data in dataset.probes.items():
-                if str(serial_number) == inserted_probe_serial_number:
-                    break
-            else:
-                raise FileNotFoundError(
-                    "No Open Ephys data found for probe insertion: {}".format(key)
-                )
-
-            if not probe_data.ap_meta:
-                raise IOError(
-                    'No analog signals found - check "structure.oebin" file or "continuous" directory'
-                )
-
-            if probe_data.probe_model not in supported_probe_types:
-                raise NotImplementedError(
-                    f"Processing for neuropixels probe model {probe_data.probe_model} not yet implemented."
-                )
-
-            probe_type = probe_data.probe_model
-            electrode_query = probe.ProbeType.Electrode & {"probe_type": probe_type}
-
-            probe_electrodes = {
-                key["electrode"]: key for key in electrode_query.fetch("KEY")
-            }  # electrode configuration
-
-            electrode_group_members = [
-                probe_electrodes[channel_idx]
-                for channel_idx in probe_data.ap_meta["channels_indices"]
-            ]  # recording session-specific electrode configuration
-
-            econfig_entry, econfig_electrodes = generate_electrode_config_entry(
-                probe_type, electrode_group_members
-            )
-
-            ephys_recording_entry = {
-                **key,
-                "electrode_config_hash": econfig_entry["electrode_config_hash"],
-                "acq_software": acq_software,
-                "sampling_rate": probe_data.ap_meta["sample_rate"],
-                "recording_datetime": probe_data.recording_info["recording_datetimes"][
-                    0
-                ],
-                "recording_duration": np.sum(
-                    probe_data.recording_info["recording_durations"]
-                ),
-            }
-
-            root_dir = find_root_directory(
-                get_ephys_root_data_dir(),
-                probe_data.recording_info["recording_files"][0],
-            )
-
-            ephys_file_entries = [
-                {**key, "file_path": fp.relative_to(root_dir).as_posix()}
-                for fp in probe_data.recording_info["recording_files"]
-            ]
-
-            channel2electrode_map = {
-                channel_idx: probe_electrodes[channel_idx]
-                for channel_idx in probe_data.ap_meta["channels_indices"]
-            }
-
-            ephys_channel_entries = [
-                {
-                    **key,
-                    "electrode_config_hash": econfig_entry["electrode_config_hash"],
-                    "channel_idx": channel_idx,
-                    **channel_info,
-                }
-                for channel_idx, channel_info in channel2electrode_map.items()
-            ]
-
-            # Explicitly garbage collect "dataset" as these may have large memory footprint and may not be cleared fast enough
-            del probe_data, dataset
-            gc.collect()
+        for meta_filepath in ephys_meta_filepaths:
+            spikeglx_meta = spikeglx.SpikeGLXMeta(meta_filepath)
+            if str(spikeglx_meta.probe_SN) == inserted_probe_serial_number:
+                spikeglx_meta_filepath = meta_filepath
+                break
         else:
-            raise NotImplementedError(
-                f"Processing ephys files from acquisition software of type {acq_software} is not yet implemented."
+            raise FileNotFoundError(
+                "No SpikeGLX data found for probe insertion: {}".format(key)
             )
+
+        if spikeglx_meta.probe_model not in supported_probe_types:
+            raise NotImplementedError(
+                f"Processing for neuropixels probe model {spikeglx_meta.probe_model} not yet implemented."
+            )
+
+        probe_type = spikeglx_meta.probe_model
+        electrode_query = probe.ProbeType.Electrode & {"probe_type": probe_type}
+
+        probe_electrodes = {
+            (shank, shank_col, shank_row): key
+            for key, shank, shank_col, shank_row in zip(
+                *electrode_query.fetch("KEY", "shank", "shank_col", "shank_row")
+            )
+        }  # electrode configuration
+        electrode_group_members = [
+            probe_electrodes[(shank, shank_col, shank_row)]
+            for shank, shank_col, shank_row, _ in spikeglx_meta.shankmap["data"]
+        ]  # recording session-specific electrode configuration
+
+        econfig_entry, econfig_electrodes = generate_electrode_config_entry(
+            probe_type, electrode_group_members
+        )
+
+        ephys_recording_entry = {
+            **key,
+            "electrode_config_hash": econfig_entry["electrode_config_hash"],
+            "acq_software": acq_software,
+            "sampling_rate": spikeglx_meta.meta["imSampRate"],
+            "recording_datetime": spikeglx_meta.recording_time,
+            "recording_duration": (
+                spikeglx_meta.recording_duration
+                or spikeglx.retrieve_recording_duration(spikeglx_meta_filepath)
+            ),
+        }
+
+        root_dir = find_root_directory(
+            get_ephys_root_data_dir(), spikeglx_meta_filepath
+        )
+
+        ephys_file_entries = [
+            {
+                **key,
+                "file_path": spikeglx_meta_filepath.relative_to(
+                    root_dir
+                ).as_posix(),
+            }
+        ]
+
+        # Insert channel information
+        # Get channel and electrode-site mapping
+        channel2electrode_map = {
+            recorded_site: probe_electrodes[(shank, shank_col, shank_row)]
+            for recorded_site, (shank, shank_col, shank_row, _) in enumerate(
+                spikeglx_meta.shankmap["data"]
+            )
+        }
+
+        ephys_channel_entries = [
+            {
+                **key,
+                "electrode_config_hash": econfig_entry["electrode_config_hash"],
+                "channel_idx": channel_idx,
+                **channel_info,
+            }
+            for channel_idx, channel_info in channel2electrode_map.items()
+        ]
 
         # Insert into probe.ElectrodeConfig (recording configuration)
         if not probe.ElectrodeConfig & {
@@ -1129,23 +1053,12 @@ def get_recording_channels_details(ephys_recording_key: dict) -> np.array:
     channels_details["sample_rate"] = sample_rate
     channels_details["num_channels"] = len(channels_details["channel_ind"])
 
-    if acq_software == "SpikeGLX":
-        spikeglx_meta_filepath = get_spikeglx_meta_filepath(ephys_recording_key)
-        spikeglx_recording = spikeglx.SpikeGLX(spikeglx_meta_filepath.parent)
-        channels_details["uVPerBit"] = spikeglx_recording.get_channel_bit_volts("ap")[0]
-        channels_details["connected"] = np.array(
-            [v for *_, v in spikeglx_recording.apmeta.shankmap["data"]]
-        )
-    elif acq_software == "Open Ephys":
-        oe_probe = get_openephys_probe_data(ephys_recording_key)
-        channels_details["uVPerBit"] = oe_probe.ap_meta["channels_gains"][0]
-        channels_details["connected"] = np.array(
-            [
-                int(v == 1)
-                for c, v in oe_probe.channels_connected.items()
-                if c in channels_details["channel_ind"]
-            ]
-        )
+    spikeglx_meta_filepath = get_spikeglx_meta_filepath(ephys_recording_key)
+    spikeglx_recording = spikeglx.SpikeGLX(spikeglx_meta_filepath.parent)
+    channels_details["uVPerBit"] = spikeglx_recording.get_channel_bit_volts("ap")[0]
+    channels_details["connected"] = np.array(
+        [v for *_, v in spikeglx_recording.apmeta.shankmap["data"]]
+    )
 
     return channels_details
 
