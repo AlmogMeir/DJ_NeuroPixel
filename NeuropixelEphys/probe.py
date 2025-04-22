@@ -1,12 +1,13 @@
 import datajoint as dj
 
-from .readers import probe_geometry
-from .readers.probe_geometry import build_electrode_layouts
+from readers import probe_geometry
+import dj_connect
+
 
 log = dj.logger
 
-schema = dj.schema()
-
+conn = dj_connect.connectToDataJoint("almog", "simple")
+schema = dj.Schema("almog_EPHYS")
 
 def activate(
     schema_name: str,

@@ -8,16 +8,16 @@ import re
 
 import dj_connect
 import getSchema
-from . import probe
-from .readers import kilosort, spikeglx
+import probe
+from readers import kilosort, spikeglx
 
 
-from element_interface.utils import dict_to_uuid, find_full_path, find_root_directory
+# from element_interface.utils import dict_to_uuid, find_full_path, find_root_directory
 
 # Below is an alternative to define the functions that not imported properly from element_interface.
 # This is for the case that element_interface failed to install on the env.
 
-"""
+# """
 from uuid import uuid4
 from pathlib import Path
 
@@ -41,10 +41,13 @@ def find_root_directory(root_directories, target_path):
         if target_path.is_relative_to(root_dir):
             return root_dir
     raise FileNotFoundError(f"Root directory for {target_path} not found.")
-"""
+# """
 
 conn = dj_connect.connectToDataJoint("almog", "simple")
-schema = getSchema.getSchema()
+schema = dj.Schema("almog_EPHYS")
+exp = dj.VirtualModule("EXP", "arseny_s1alm_experiment")
+# schema = dj.Schema("arseny_s1alm_experiment")
+# schema.spawn_missing_classes()
 logger = dj.logger
 _linking_module = None
 
@@ -139,6 +142,21 @@ def get_processed_root_data_dir() -> str:
         return get_ephys_root_data_dir()[0]
 
 # ----------------------------- Table declarations ----------------------
+@schema
+class Session(dj.Manual):
+    """Session information.
+
+    Attributes:
+        session_datetime (datetime): Date and time of the session.
+        session_directory (varchar(255) ): Relative path to the session directory.
+    """
+
+    definition = """
+    # Session information
+    session_datetime: datetime
+    ---
+    session_directory: varchar(255)
+    """
 
 @schema
 class ProbeInsertion(dj.Manual):
@@ -213,7 +231,6 @@ class InsertionLocation(dj.Manual):
 
     Attributes:
         ProbeInsertion (foreign key): ProbeInsertion primary key.
-        SkullReference (dict): SkullReference primary key.
         ap_location (decimal (6, 2) ): Anterior-posterior location in micrometers. Reference is 0 with anterior values positive.
         ml_location (decimal (6, 2) ): Medial-lateral location in micrometers. Reference is zero with right side values positive.
         depth (decimal (6, 2) ): Manipulator depth relative to the surface of the brain at zero. Ventral is negative.
@@ -226,7 +243,6 @@ class InsertionLocation(dj.Manual):
     # Brain Location of a given probe insertion.
     -> ProbeInsertion
     ---
-    -> SkullReference
     ap_location: decimal(6, 2) # (um) anterior-posterior; ref is 0; more anterior is more positive
     ml_location: decimal(6, 2) # (um) medial axis; ref is 0 ; more right is more positive
     depth:       decimal(6, 2) # (um) manipulator depth relative to surface of the brain (0); more ventral is more negative
@@ -243,7 +259,6 @@ class EphysRecording(dj.Imported):
     Attributes:
         ProbeInsertion (foreign key): ProbeInsertion primary key.
         probe.ElectrodeConfig (dict): probe.ElectrodeConfig primary key.
-        AcquisitionSoftware (dict): AcquisitionSoftware primary key.
         sampling_rate (float): sampling rate of the recording in Hertz (Hz).
         recording_datetime (datetime): datetime of the recording from this probe.
         recording_duration (float): duration of the entire recording from this probe in seconds.
@@ -254,7 +269,6 @@ class EphysRecording(dj.Imported):
     -> ProbeInsertion      
     ---
     -> probe.ElectrodeConfig
-    -> AcquisitionSoftware
     sampling_rate: float # (Hz) 
     recording_datetime: datetime # datetime of the recording from this probe
     recording_duration: float # (seconds) duration of the recording from this probe
@@ -521,12 +535,12 @@ class CuratedClustering(dj.Imported):
     """Clustering results after curation.
 
     Attributes:
-        Clustering (foreign key): Clustering primary key.
+        EphysRecording (foreign key): EphysRecording primary key.
     """
 
     definition = """
     # Clustering results of the spike sorting step.
-    -> Clustering    
+    -> EphysRecording
     """
 
     class Unit(dj.Part):
@@ -688,6 +702,26 @@ class CuratedClustering(dj.Imported):
         self.Unit.insert(units, ignore_extra_fields=True)
 
 @schema
+class SessionTrial(dj.Manual):
+    """Trial information for each session.
+
+    Attributes:
+        Session (foreign key): Session primary key.
+        trial_number (int): Unique trial number for each session.
+        trial_start_time (datetime): Start time of the trial.
+        trial_end_time (datetime): End time of the trial.
+    """
+
+    definition = """
+    # Trial information for each session
+    -> Session
+    trial_number: int
+    ---
+    trial_start_time: datetime
+    trial_end_time: datetime
+    """
+
+@schema
 class TrialSpikes(dj.Imported):
     """Single trial spikes.
 
@@ -700,7 +734,7 @@ class TrialSpikes(dj.Imported):
     definition = """
         #
         -> CuratedClustering.Unit
-        -> EXP.SessionTrial
+        -> SessionTrial
         ---
         spike_times: longblob   #(s) spike times for each trial, relative to the beginning of the trial" \
         """
@@ -953,31 +987,21 @@ class CellType(dj.Lookup):
 #         ap_angle = null: decimal(8,3)       # Angle between the mainipulator/reconstructed track and the Anterior-Posterior axis. An anterior tilt is positive." \
 #         """
     
-@schema
-class LabeledTrack(dj.Manual):
-    definition = """
-        #
-        -> EPHYS.ElectrodeGroup
-        ---
-        labeling_date: date         # in case we labeled the track not during a recorded session we can specify the exact date here
-        dye_color  : varchar(32)
-        """
-    
-@schema
-class Jobs(dj.Jobs):
-    definition = """
-        # the job reservation table for +EPHYS
-        table_name: varchar(255)    # className of the table
-        key_hash: char(32)          # key hash
-        -----
-        status: enum("reserved","error","ignore") # if tuple is missing, the job is available
-        key=null: blob                              # structure containing the key
-        error_message="": varchar(1023)             # error message returned if failed
-        error_stack=null: blob                      # error stack if failed
-        host="": varchar(255)                       # system hostname
-        pid=0: int unsigned                         # system process id
-        timestamp=CURRENT_TIMESTAMP: timestamp      # automatic timestamp
-        """
+# @schema
+# class Jobs(dj.Jobs):
+#     definition = """
+#         # the job reservation table for +EPHYS
+#         table_name: varchar(255)    # className of the table
+#         key_hash: char(32)          # key hash
+#         -----
+#         status: enum("reserved","error","ignore") # if tuple is missing, the job is available
+#         key=null: blob                              # structure containing the key
+#         error_message="": varchar(1023)             # error message returned if failed
+#         error_stack=null: blob                      # error stack if failed
+#         host="": varchar(255)                       # system hostname
+#         pid=0: int unsigned                         # system process id
+#         timestamp=CURRENT_TIMESTAMP: timestamp      # automatic timestamp
+#         """
     
 # ---------------- HELPER FUNCTIONS ----------------
 

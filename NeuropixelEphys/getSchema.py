@@ -4,4 +4,4 @@ import dj_connect
 # Connect to DataJoint database
 
 def getSchema():
-    return dj.Schema(f"{dj.config['database.user']}_EPHYS") 
+    return dj.Schema(f"{dj.config['database.user']}_EXP") 

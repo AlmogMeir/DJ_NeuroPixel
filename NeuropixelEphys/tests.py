@@ -7,9 +7,33 @@ import dj_connect
 import getSchema
 
 conn = dj_connect.connectToDataJoint("almog", "simple")
-schema = getSchema.getSchema()
+# schema = getSchema.getSchema()
+# arseny_schema = dj.VirtualModule("arseny_schema", "arseny_s1alm_experiment")
 
-print(dj.list_schemas())
+schema = dj.Schema("almog_EPHYS")
+exp = dj.VirtualModule("exp", "arseny_s1alm_experiment")
+# schema = dj.Schema("arseny_s1alm_experiment")
+# schema.spawn_missing_classes()
 print(schema.list_tables())
-schema = dj.VirtualModule('EPHYS', conn)
-dj.Diagram(schema).draw()
+# schema = dj.VirtualModule("ephys", "almog_EPHYS")
+# schema.ProbeInsertion.drop()
+# Create a new schema for the copy
+# almog_schema = dj.Schema('almog_EPHYS')
+
+# Copy tables from arseny_schema to almog_schema
+# for table_name in arseny_schema.list_tables():
+#     table = getattr(arseny_schema, table_name)
+#     class Copy(table.__class__):
+#         definition = table.definition
+#         _schema = almog_schema
+
+# print(arseny_schema)
+# print(almog_schema.list_tables())
+
+# show the virtual module
+# schema = dj.VirtualModule("arseny", "arseny_s1alm_experiment")
+# query = schema.Session
+# data = query.fetch()
+# print(query)
+# schema = dj.VirtualModule('EPHYS', conn)
+# dj.Diagram(schema).draw()
