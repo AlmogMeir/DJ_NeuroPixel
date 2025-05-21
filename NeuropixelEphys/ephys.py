@@ -45,7 +45,7 @@ def find_root_directory(root_directories, target_path):
 
 conn = dj_connect.connectToDataJoint("almog", "simple")
 schema = dj.Schema("almog_EPHYS")
-exp = dj.VirtualModule("EXP", "arseny_s1alm_experiment")
+# exp = dj.VirtualModule("EXP", "arseny_s1alm_experiment")
 # schema = dj.Schema("arseny_s1alm_experiment")
 # schema.spawn_missing_classes()
 logger = dj.logger
