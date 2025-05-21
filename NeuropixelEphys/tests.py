@@ -6,15 +6,15 @@ import re
 import dj_connect
 import getSchema
 
-conn = dj_connect.connectToDataJoint("almog", "simple")
+# conn = dj_connect.connectToDataJoint("almog", "simple")
 # schema = getSchema.getSchema()
 # arseny_schema = dj.VirtualModule("arseny_schema", "arseny_s1alm_experiment")
 
-schema = dj.Schema("almog_EPHYS")
-exp = dj.VirtualModule("exp", "arseny_s1alm_experiment")
-# schema = dj.Schema("arseny_s1alm_experiment")
-# schema.spawn_missing_classes()
-print(schema.list_tables())
+# schema = dj.Schema("almog_EPHYS")
+# exp = dj.VirtualModule("exp", "arseny_s1alm_experiment")
+# # schema = dj.Schema("arseny_s1alm_experiment")
+# # schema.spawn_missing_classes()
+# print(schema.list_tables())
 # schema = dj.VirtualModule("ephys", "almog_EPHYS")
 # schema.ProbeInsertion.drop()
 # Create a new schema for the copy
@@ -37,3 +37,8 @@ print(schema.list_tables())
 # print(query)
 # schema = dj.VirtualModule('EPHYS', conn)
 # dj.Diagram(schema).draw()
+
+from scipy.io import loadmat
+
+mat_data = loadmat('your_matlab_file.mat')
+print(mat_data.keys())
