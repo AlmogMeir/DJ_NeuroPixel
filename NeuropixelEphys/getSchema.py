@@ -3,5 +3,5 @@ import dj_connect
 
 # Connect to DataJoint database
 
-def getSchema():
-    return dj.Schema(f"{dj.config['database.user']}_EXP") 
+def getSchema(schema_name):
+    return dj.Schema(f"{dj.config['database.user']}_{schema_name}") 
