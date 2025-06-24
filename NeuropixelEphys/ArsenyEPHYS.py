@@ -5,16 +5,13 @@ import dj_connect
 import getSchema
 # from scipy.io import loadmat
 
-import mat73
+# schema = getSchema.getSchema()
 
-data = mat73.loadmat('simplified_spike_data.mat')
-data_simplified = data['simplified_data']
-# 
+conn = dj_connect.connectToDataJoint("talch012", "simple")
 
-# print(data['simplified_data'].keys())
-
-conn = dj_connect.connectToDataJoint("almog", "simple")
-schema = getSchema.getSchema()
+schema = dj.Schema("talch012_EPHYS_TEST")
+exp = dj.VirtualModule("EXPt", "talch012_expt", create_tables=True)
+lab = dj.VirtualModule("LABt", "talch012_labt", create_tables=True)
 
 # ----------------------------- Table declarations ----------------------
 
@@ -38,56 +35,18 @@ class Probe(dj.Lookup):
     contents = [{'probe_part_no': '', 'probe_type': 'NeuroPixel2.0', 'probe_comment': ''}]
     # TODO: Change to the actual probe types
 
-    class ProbeMapping(dj.Imported):
-        """Probe mapping table.
-        Attributes:
-            Probe (foreign key): Probe primary key.
-            probe_mapping (longblob): Probe mapping file.
-        """
-
-        definition = """
-            -> master
-            ---
-            probe_mapping: longblob
-            """
-        
 @schema
-class Session(dj.Manual):
-    """Session table.
+class ProbeMapping(dj.Imported):
+    """Probe mapping table.
     Attributes:
-        subject_id (int): Subject ID.
-        session_date (date): Session date.
-        session_time (time): Session time.
-        session_uid (int): Unique session identifier across animals.
+        Probe (foreign key): Probe primary key.
+        probe_mapping (longblob): Probe mapping file.
     """
 
     definition = """
-        # Session
-        subject_id: int
-        session_date: date
-        session_time: time
+        -> Probe
         ---
-        session_uid: int
-        """
-
-@schema
-class SessionTrial(dj.Imported):
-    """Session trial table.
-    Attributes:
-        Session (foreign key): Session primary key.
-        trial (int): Trial number.
-        trial_uid (int): Unique trial identifier across sessions/animals.
-        trial_start_time (float): Trial start time in seconds relative to the beginning of the session.
-        trial_end_time (float): Trial end time in seconds relative to the beginning of the session.
-    """
-
-    definition = """
-        -> Session
-        trial: int
-        ---
-        trial_uid: int
-        trial_start_time: float
-        trial_end_time: float
+        probe_mapping: longblob
         """
 
 
@@ -95,42 +54,43 @@ class SessionTrial(dj.Imported):
 class ElectrodeGroup(dj.Manual):
     """Electrode group table.
     Attributes:
-        Session (foreign key): Session primary key.
+        exp.Session (foreign key): Session primary key.
         electrode_group (tinyint): Shank number.
         -> Probe (foreign key): Probe primary key.
     """
 
     definition = """
         # Electrode
-        -> Session
+        -> exp.Session
         electrode_group : tinyint   # shank number
         ---
         -> Probe
         """
 
-    class ElectrodeGroupPosition(dj.Imported):
-        """Electrode group position in the brain.
-        Attributes:
-            ElectrodeGroup (foreign key): ElectrodeGroup primary key.
-            ml_location (float): Electrode medio-lateral location in micrometers.
-            ap_location (float): Electrode anterior-posterior location in micrometers.
-            dv_location (float): Electrode dorsal-ventral location in micrometers.
-            ml_angle (float): Angle between the mainipulator/reconstructed track and the Medio-Lateral axis. A tilt towards the right hemishpere is positive.
-            ap_angle (float): Angle between the mainipulator/reconstructed track and the Anterior-Posterior axis. An anterior tilt is positive.
-        """
+@schema
+class ElectrodeGroupPosition(dj.Imported):
+    """Electrode group position in the brain.
+    Attributes:
+        ElectrodeGroup (foreign key): ElectrodeGroup primary key.
+        ml_location (float): Electrode medio-lateral location in micrometers.
+        ap_location (float): Electrode anterior-posterior location in micrometers.
+        dv_location (float): Electrode dorsal-ventral location in micrometers.
+        ml_angle (float): Angle between the mainipulator/reconstructed track and the Medio-Lateral axis. A tilt towards the right hemishpere is positive.
+        ap_angle (float): Angle between the mainipulator/reconstructed track and the Anterior-Posterior axis. An anterior tilt is positive.
+    """
 
-        definition = """
-            -> EPHYS.ElectrodeGroup
-            ---
-            ml_location= null: decimal(8,3)     # um from ref ; right is positive; based on manipulator coordinates/reconstructed track
-            ap_location= null: decimal(8,3)     # um from ref; anterior is positive; based on manipulator coordinates/reconstructed track
-            dv_location= null: decimal(8,3)     # um from dura; ventral is positive; based on manipulator coordinates/reconstructed track
-            ml_angle = null: decimal(8,3)       # Angle between the mainipulator/reconstructed track and the Medio-Lateral axis. A tilt towards the right hemishpere is positive.
-            ap_angle = null: decimal(8,3)       # Angle between the mainipulator/reconstructed track and the Anterior-Posterior axis. An anterior tilt is positive." \
-            """
-        
-    def make(self, key):
-        """Populates table with Electrode information."""
+    definition = """
+        -> ElectrodeGroup
+        ---
+        ml_location= null: decimal(8,3)     # um from ref ; right is positive; based on manipulator coordinates/reconstructed track
+        ap_location= null: decimal(8,3)     # um from ref; anterior is positive; based on manipulator coordinates/reconstructed track
+        dv_location= null: decimal(8,3)     # um from dura; ventral is positive; based on manipulator coordinates/reconstructed track
+        ml_angle = null: decimal(8,3)       # Angle between the mainipulator/reconstructed track and the Medio-Lateral axis. A tilt towards the right hemishpere is positive.
+        ap_angle = null: decimal(8,3)       # Angle between the mainipulator/reconstructed track and the Anterior-Posterior axis. An anterior tilt is positive." \
+        """
+    
+def make(self, key):
+    """Populates table with Electrode information."""
 
 @schema
 class CellType(dj.Lookup):
@@ -195,136 +155,148 @@ class Unit(dj.Imported):
         unit_channel = null: float  # channel on the electrode for which the unit has the largest amplitude
         """
 
-    class UnitCellType(dj.Computed):
-        """Single unit cell type.
+@schema
+class UnitCellType(dj.Manual):
+    """Single unit cell type.
 
-        Attributes:
-            Unit (foreign key): Unit primary key.
-            CellType (foreign key): name of the cell type.
-        """
+    Attributes:
+        Unit (foreign key): Unit primary key.
+        CellType (foreign key): name of the cell type.
+    """
 
-        definition = """
-            #
-            -> master
-            ---
-            -> CellType
-            """
-
-    class UnitPosition(dj.Imported):
-        """Estimated unit position in the brain.
-        Attributes:
-            Unit (foreign key): Unit primary key.
-            unit_ml_location (float): Unit medio-lateral location in micrometers.
-            unit_ap_location (float): Unit anterior-posterior location in micrometers.
-            unit_dv_location (float): Unit dorsal-ventral location in micrometers.
-        """
-
-        definition = """
-            # Estimated unit position in the brain
-            -> master
-            ---
-            unit_ml_location= null: decimal(8,3)    # um from ref; right is positive; based on manipulator coordinates (or histology) & probe config
-            unit_ap_location= null: decimal(8,3)    # um from ref; anterior is positive; based on manipulator coordinates (or histology) & probe config
-            unit_dv_location= null: decimal(8,3)    # um from dura; ventral is positive; based on manipulator coordinates (or histology) & probe config
-            """
-        
-        #TODO: Add absolute position
-
-    class UnitComment(dj.Manual):
-        """Single unit comments.
-
-        Attributes:
-            Unit (foreign key): Unit primary key.
-            unit_comment (varchar(767)): free text comment for the unit.
-        """
-
-        definition = """
-            #
-            -> master
-            unit_comment: varchar(767) 
-            ---
-            """
-
-    # Take from original files of kilosort/bombcell
-    class UnitWaveform(dj.Imported):
-        """Mean waveform across spikes for a given unit.
-
-        Attributes:
-            Unit (foreign key): Unit primary key.
-            waveform (blob): Unit average waveform. time in samples, amplitude in microvolts.
-            spk_width_ms (float): Unit average spike width, in ms.
-            sampling_fq (float): Sampling frequency in Hz.
-            waveform_amplitude (float): Unit amplitude (peak) in microvolts.
-        """
-
-        definition = """
-            # Estimated unit position in the brain
-            -> master
-            ---
-            waveform: blob              # unit average waveform. time in samples, amplitude in microvolts.
-            spk_width_ms: float         # unit average spike width, in ms
-            sampling_fq: float          # Hz
-            waveform_amplitude: float   # unit amplitude (peak) in microvolts
-            """
-    
-    # Take from original files of kilosort or merge Ben's
-    class UnitSpikes(dj.Imported):
-        """Spikes for each unit.
-        Attributes:
-            Unit (foreign key): Unit primary key.
-            spike_times (longblob): Spike times for the entire session (relative to the beginning of the session).
-        """
-
-        definition = """
+    definition = """
         #
-        -> master
+        -> Unit
         ---
-        spike_times: longblob   #(s) spike times for the entire session (relative to the beginning of the session) 
+        -> CellType
         """
-        
-    def make(self, key):
-        """Automated population of Unit information."""
-
-    # Example from the matlab code
-    # TODO: Implement the makeTuples function
-    """
-    methods(Access=protected)
-        function makeTuples(self, key)
-
-            obj = EXP.getObj(key);
-            counter=0;
-            for iUnits = 1:size(obj.eventSeriesHash.value,2)
-                unit_channel = mode(obj.eventSeriesHash.value{iUnits}.channel);
-
-                if unit_channel<=32 && key.electrode_group ==1
-                    Insert_Unit(self, key, iUnits, unit_channel);
-                    counter=counter+1;
-                elseif unit_channel>32 && key.electrode_group ==2
-                    unit_channel = unit_channel-32;
-                    Insert_Unit(self, key, iUnits, unit_channel);
-                    counter=counter+1;
-                else
-                end
-                
-            end
-            fprintf('Populated %d units recorded from animal %d  on %s', counter, key.subject_id, fetch1(EXP.Session & key,'session_date'))
-        end
-    end
-    """
 
 @schema
-class TrialSpikes(dj.Imported):
+class UnitPosition(dj.Manual):
+    """Estimated unit position in the brain.
+    Attributes:
+        Unit (foreign key): Unit primary key.
+        lab.Hemisphere (foreign key): Hemisphere primary key.
+        lab.BrainArea (foreign key): Brain area primary key.
+        lab.SkullReference (foreign key): Skull reference primary key.
+        unit_ml_location (float): Unit medio-lateral location in micrometers.
+        unit_ap_location (float): Unit anterior-posterior location in micrometers.
+        unit_dv_location (float): Unit dorsal-ventral location in micrometers.
+        
+    """
+
+    definition = """
+        # Estimated unit position in the brain
+        -> Unit
+        ---
+        -> lab.Hemisphere
+        -> lab.BrainArea
+        -> lab.SkullReference
+        unit_ml_location= null: decimal(8,3)    # um from ref; right is positive; based on manipulator coordinates (or histology) & probe config
+        unit_ap_location= null: decimal(8,3)    # um from ref; anterior is positive; based on manipulator coordinates (or histology) & probe config
+        unit_dv_location= null: decimal(8,3)    # um from dura; ventral is positive; based on manipulator coordinates (or histology) & probe config
+        """
+    
+    #TODO: Add absolute position
+
+@schema
+class UnitComment(dj.Manual):
+    """Single unit comments.
+
+    Attributes:
+        Unit (foreign key): Unit primary key.
+        unit_comment (varchar(767)): free text comment for the unit.
+    """
+
+    definition = """
+        #
+        -> Unit
+        unit_comment: varchar(767) 
+        ---
+        """
+
+# Take from original files of kilosort/bombcell
+@schema
+class UnitWaveform(dj.Manual):
+    """Mean waveform across spikes for a given unit.
+
+    Attributes:
+        Unit (foreign key): Unit primary key.
+        waveform (blob): Unit average waveform. time in samples, amplitude in microvolts.
+        spk_width_ms (float): Unit average spike width, in ms.
+        sampling_fq (float): Sampling frequency in Hz.
+        waveform_amplitude (float): Unit amplitude (peak) in microvolts.
+    """
+
+    definition = """
+        # Estimated unit position in the brain
+        -> Unit
+        ---
+        waveform: blob              # unit average waveform. time in samples, amplitude in microvolts.
+        spk_width_ms: float         # unit average spike width, in ms
+        sampling_fq: float          # Hz
+        waveform_amplitude: float   # unit amplitude (peak) in microvolts
+        """
+
+# Take from original files of kilosort or merge Ben's
+@schema
+class UnitSpikes(dj.Manual):
+    """Spikes for each unit.
+    Attributes:
+        Unit (foreign key): Unit primary key.
+        spike_times (longblob): Spike times for the entire session (relative to the beginning of the session).
+    """
+
+    definition = """
+    #
+    -> Unit
+    ---
+    spike_times: longblob   #(s) spike times for the entire session (relative to the beginning of the session) 
+    """
+    
+def make(self, key):
+    """Automated population of Unit information."""
+
+# Example from the matlab code
+# TODO: Implement the makeTuples function
+"""
+methods(Access=protected)
+    function makeTuples(self, key)
+
+        obj = EXP.getObj(key);
+        counter=0;
+        for iUnits = 1:size(obj.eventSeriesHash.value,2)
+            unit_channel = mode(obj.eventSeriesHash.value{iUnits}.channel);
+
+            if unit_channel<=32 && key.electrode_group ==1
+                Insert_Unit(self, key, iUnits, unit_channel);
+                counter=counter+1;
+            elseif unit_channel>32 && key.electrode_group ==2
+                unit_channel = unit_channel-32;
+                Insert_Unit(self, key, iUnits, unit_channel);
+                counter=counter+1;
+            else
+            end
+            
+        end
+        fprintf('Populated %d units recorded from animal %d  on %s', counter, key.subject_id, fetch1(EXP.Session & key,'session_date'))
+    end
+end
+"""
+
+@schema
+class TrialSpikes(dj.Manual):
     definition = """
         # Spikes for each trial
         -> Unit (foreign key): Unit primary key.
-        -> SessionTrial (foreign key): Session trial primary key.
+        -> exp.SessionTrial10 (foreign key): Session trial primary key.
         ---
         spike_times: longblob   #(s) spike times for each trial, relative to the beginning of the trial" \
         """
     definition = """
         #
         -> Unit
-        -> SessionTrial
+        -> exp.SessionTrial10
         ---
         spike_times: longblob   #(s) spike times for each trial, relative to the beginning of the trial" \
         """

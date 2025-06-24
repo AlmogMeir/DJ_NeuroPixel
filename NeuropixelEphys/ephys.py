@@ -43,9 +43,9 @@ def find_root_directory(root_directories, target_path):
     raise FileNotFoundError(f"Root directory for {target_path} not found.")
 # """
 
-conn = dj_connect.connectToDataJoint("almog", "simple")
-schema = dj.Schema("almog_EPHYS")
-# exp = dj.VirtualModule("EXP", "arseny_s1alm_experiment")
+schema = dj.Schema("almog_EPHYS_TEST3")
+exp = dj.schema("arseny_s1alm_experiment")
+exp = dj.VirtualModule("EXP", "arseny_s1alm_experiment", create_tables=True)
 # schema = dj.Schema("arseny_s1alm_experiment")
 # schema.spawn_missing_classes()
 logger = dj.logger
@@ -142,35 +142,20 @@ def get_processed_root_data_dir() -> str:
         return get_ephys_root_data_dir()[0]
 
 # ----------------------------- Table declarations ----------------------
-@schema
-class Session(dj.Manual):
-    """Session information.
-
-    Attributes:
-        session_datetime (datetime): Date and time of the session.
-        session_directory (varchar(255) ): Relative path to the session directory.
-    """
-
-    definition = """
-    # Session information
-    session_datetime: datetime
-    ---
-    session_directory: varchar(255)
-    """
 
 @schema
 class ProbeInsertion(dj.Manual):
     """Information about probe insertion across subjects and sessions.
 
     Attributes:
-        Session (foreign key): Session primary key.
+        exp.Session (foreign key): Session primary key.
         insertion_number (foreign key, str): Unique insertion number for each probe insertion for a given session.
         probe.Probe (str): probe.Probe primary key.
     """
 
     definition = """
     # Probe insertion implanted into an animal for a given session.
-    -> Session
+    -> exp.Session
     insertion_number: tinyint unsigned
     ---
     -> probe.Probe
@@ -702,39 +687,19 @@ class CuratedClustering(dj.Imported):
         self.Unit.insert(units, ignore_extra_fields=True)
 
 @schema
-class SessionTrial(dj.Manual):
-    """Trial information for each session.
-
-    Attributes:
-        Session (foreign key): Session primary key.
-        trial_number (int): Unique trial number for each session.
-        trial_start_time (datetime): Start time of the trial.
-        trial_end_time (datetime): End time of the trial.
-    """
-
-    definition = """
-    # Trial information for each session
-    -> Session
-    trial_number: int
-    ---
-    trial_start_time: datetime
-    trial_end_time: datetime
-    """
-
-@schema
 class TrialSpikes(dj.Imported):
     """Single trial spikes.
 
             Attributes:
                 Unit (foreign key): Unit primary key.
-                SessionTrial (foreign key): SessionTrial primary key.
+                exp.SessionTrial (foreign key): SessionTrial primary key.
                 spike_times (longblob): Spike times for each trial, relative to the beginning of the trial.
             """
     
     definition = """
         #
         -> CuratedClustering.Unit
-        -> SessionTrial
+        -> exp.SessionTrial
         ---
         spike_times: longblob   #(s) spike times for each trial, relative to the beginning of the trial" \
         """

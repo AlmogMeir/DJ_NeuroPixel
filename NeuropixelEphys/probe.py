@@ -6,8 +6,7 @@ import dj_connect
 
 log = dj.logger
 
-conn = dj_connect.connectToDataJoint("almog", "simple")
-schema = dj.Schema("almog_EPHYS")
+schema = dj.Schema("talch012_EPHYS")
 
 def activate(
     schema_name: str,
