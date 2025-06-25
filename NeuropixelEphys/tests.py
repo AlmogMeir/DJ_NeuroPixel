@@ -82,7 +82,7 @@ print(schema_module.Unit())
 # Show the cloumns of the table Trial_spikes
 print("TrialSpikes table columns:", schema_module.TrialSpikes().heading)
 
-for i in range(4):
+for i in range(183):
     # TODO: Add the relevant data to the i trial row.
     # TODO: Create a new row for the tables.
     # current_session_trial_key_string = f'session=1 & subject_id=101104 & trial={i + 1}'
