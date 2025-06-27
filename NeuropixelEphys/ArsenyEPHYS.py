@@ -141,7 +141,7 @@ class Unit(dj.Imported):
     Attributes:
         ElectrodeGroup (foreign key): Electrode group primary key.
         unit (smallint): Unit number.
-        unit_uid (int): Unique unit identifier across sessions/animals. ###
+        roi_number (int): Unique unit identifier across sessions/animals. ###
         UnitQualityType (foreign key): Unit quality type.
         unit_channel (float): Channel on the electrode for which the unit has the largest amplitude.
     """
@@ -150,7 +150,7 @@ class Unit(dj.Imported):
         -> ElectrodeGroup
         unit: smallint
         ---
-        unit_uid: int               # unique across sessions/animals
+        roi_number: int               # unique across sessions/animals
         -> UnitQualityType
         unit_channel = null: float  # channel on the electrode for which the unit has the largest amplitude
         """

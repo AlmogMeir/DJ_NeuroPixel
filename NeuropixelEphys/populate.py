@@ -37,7 +37,7 @@ schema_module.ElectrodeGroup.insert1(dict(session=session_key[0], subject_id=ses
 # Create empty DataFrames for the relevant tables in the schema
 
 # Using columns from the foreign keys (Session and ElectrodeGroup) plus unit fields.
-unit_cols = ["session", "subject_id", "electrode_group", "unit", "unit_uid", "unit_quality", "unit_channel"]
+unit_cols = ["session", "subject_id", "electrode_group", "unit", "roi_number", "unit_quality", "unit_channel"]
 df_unit = pd.DataFrame(columns=unit_cols)
 
 # Waveform set columns
@@ -67,7 +67,7 @@ for i in range(len(data_simplified['example_waveforms'])):
         "subject_id": subject_id,
         "electrode_group": 1,
         "unit": i,
-        "unit_uid": f"{subject_id}{session}{i}",
+        "roi_number": f"{subject_id}{session}{i}",
         "unit_quality": "good",  # Placeholder, adjust as needed
         "unit_channel": ""  # Placeholder, adjust as needed
     }
@@ -86,11 +86,11 @@ for i in range(183):
     # TODO: Add the relevant data to the i trial row.
     # TODO: Create a new row for the tables.
     # current_session_trial_key_string = f'session=1 & subject_id=101104 & trial={i + 1}'
-    session_trial_key = (EXPt.SessionTrial10 & 'session=1' & 'subject_id=101104' & f'trial={i+1}').fetch1('session', 'subject_id', 'trial')
-    print(f"SessionTrial key for trial {i + 1}: {session_trial_key}")
+    # session_trial_key = (EXPt.SessionTrial10 & 'session=1' & 'subject_id=101104' & f'trial={i+1}').fetch1('session', 'subject_id', 'trial')
+    # print(f"SessionTrial key for trial {i + 1}: {session_trial_key}")
 
-    unit_key = (schema_module.Unit & 'session=1' & 'subject_id=101104' & 'electrode_group=1' & f'unit={data_simplified['trial_spikes'][0][0]['cluster_ids'][i]}').fetch1('session', 'subject_id', 'electrode_group', 'unit')
-    print(f"Unit key for unit {data_simplified['trial_spikes'][0][0]['cluster_ids'][i]}: {unit_key}")
+    # unit_key = (schema_module.Unit & 'session=1' & 'subject_id=101104' & 'electrode_group=1' & f'unit={data_simplified['trial_spikes'][0][0]['cluster_ids'][i]}').fetch1('session', 'subject_id', 'electrode_group', 'unit')
+    # print(f"Unit key for unit {data_simplified['trial_spikes'][0][0]['cluster_ids'][i]}: {unit_key}")
 
     # schema_module.TrialSpikes.insert1(dict(session=session_trial_key[0], subject_id=session_trial_key[1],
     #                                        trial=session_trial_key[2], electrode_group=unit_key[2], unit=unit_key[3],
