@@ -16,11 +16,11 @@ print("Tables in the schema:", schema.list_tables())
 # session = 1
 # subject_id = 101104
 
-schema_module.Probe.drop()
-schema_module.ElectrodeGroup.drop()
-schema_module.Unit.drop()
-schema_module.WaveformSet.drop()
-schema_module.TrialSpikes.drop()
+# schema_module.Probe.drop()
+# schema_module.ElectrodeGroup.drop()
+# schema_module.Unit.drop()
+# schema_module.WaveformSet.drop()
+# schema_module.TrialSpikes.drop()
 schema_module.CellType.drop()
 schema_module.UnitQualityType.drop()
 

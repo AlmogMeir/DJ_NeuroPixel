@@ -37,7 +37,7 @@ schema_module.ElectrodeGroup.insert1(dict(session=session_key[0], subject_id=ses
 # Create empty DataFrames for the relevant tables in the schema
 
 # Using columns from the foreign keys (Session and ElectrodeGroup) plus unit fields.
-unit_cols = ["session", "subject_id", "electrode_group", "unit", "roi_number", "unit_quality", "unit_channel"]
+unit_cols = ["session", "subject_id", "electrode_group", "unit", "unit_uid", "unit_quality", "unit_channel", "roi_number"]
 df_unit = pd.DataFrame(columns=unit_cols)
 
 # Waveform set columns
@@ -67,9 +67,10 @@ for i in range(len(data_simplified['example_waveforms'])):
         "subject_id": subject_id,
         "electrode_group": 1,
         "unit": i,
-        "roi_number": f"{subject_id}{session}{i}",
+        "unit_uid": f"{subject_id}{session}{i}",
         "unit_quality": "good",  # Placeholder, adjust as needed
-        "unit_channel": ""  # Placeholder, adjust as needed
+        "unit_channel": "",  # Placeholder, adjust as needed
+        "roi_number": i  # for compatibility with the imaging tables
     }
 
 
