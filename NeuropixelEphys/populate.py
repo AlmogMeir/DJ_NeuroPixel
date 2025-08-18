@@ -83,7 +83,7 @@ print(schema_module.Unit())
 # Show the cloumns of the table Trial_spikes
 print("TrialSpikes table columns:", schema_module.TrialSpikes().heading)
 
-for i in range(183):
+for i in range(len(data_simplified['trial_spikes']) - 1):
     # TODO: Add the relevant data to the i trial row.
     # TODO: Create a new row for the tables.
     # current_session_trial_key_string = f'session=1 & subject_id=101104 & trial={i + 1}'
@@ -96,24 +96,72 @@ for i in range(183):
     # schema_module.TrialSpikes.insert1(dict(session=session_trial_key[0], subject_id=session_trial_key[1],
     #                                        trial=session_trial_key[2], electrode_group=unit_key[2], unit=unit_key[3],
     #                                        spike_times=data_simplified['trial_spikes'][0][0]['spike_times_sec'][i]), skip_duplicates=True, allow_direct_insert=True)
-    for spike in range(len(data_simplified['trial_spikes'][0][0]['spike_times_sec'][i])):
-        df_trial_spikes.loc[i] = {
+    
+    num_of_units = data_simplified['num_clusters']
+    num_of_spikes = len(data_simplified['trial_spikes'][i][0]['spike_times_sec'])
+
+    # print(f"trial {i+1} num of spikes: {len(data_simplified['trial_spikes'][i][0]['cluster_ids'])}")
+
+    # create empty dict for spike times of all units in the trial
+    spike_times_dict = {unit: [] for unit in range(int(num_of_units))}
+    
+    # Populate the spike times for each unit in the trial
+    for spike in range(len(data_simplified['trial_spikes'][i][0]['cluster_ids'])):
+        unit = data_simplified['trial_spikes'][i][0]['cluster_ids'][spike]
+        spike_times_dict[unit].append(data_simplified['trial_spikes'][i][0]['spike_times_sec'][spike])
+        
+    for j in range(int(num_of_units)):
+        if j in spike_times_dict:
+            spike_times = spike_times_dict[j]
+        else:
+            spike_times = []
+
+        df_trial_spikes.loc[j] = {
             "session": session,
             "subject_id": subject_id,
             "electrode_group": 1,
-            "unit": data_simplified['trial_spikes'][0][0]['cluster_ids'][i],
-            "trial": i + 1,  # Assuming trial is indexed by i + 1
-            "spike_times": data_simplified['trial_spikes'][0][0]['spike_times_sec'][i]  # Convert to list
+            "unit": j,
+            "trial": i + 1,  # Trials are 1-indexed
+            "spike_times": spike_times
         }
+    # print("TrialSpikes DataFrame:\n" , df_trial_spikes)
+    schema_module.TrialSpikes.insert(df_trial_spikes, skip_duplicates=True, allow_direct_insert=True)
 
 
-print("TrialSpikes DataFrame:\n" , df_trial_spikes)
-schema_module.TrialSpikes.insert(df_trial_spikes, skip_duplicates=True, allow_direct_insert=True)
+# print("TrialSpikes DataFrame:\n" , df_trial_spikes)
+# schema_module.TrialSpikes.insert(df_trial_spikes, skip_duplicates=True, allow_direct_insert=True)
 
 print("TrialSpikes table populated with data.")
 print(f"Number of rows in TrialSpikes: {len(schema_module.TrialSpikes())}")
-print("First few rows of TrialSpikes:")
-print(schema_module.TrialSpikes().fetch())
+# print("First few rows of TrialSpikes:")
+# print(schema_module.TrialSpikes().fetch())
+
+unit_spikes_cols = ["session", "subject_id", "electrode_group", "unit", "spike_times"]
+df_unit_spikes = pd.DataFrame(columns=unit_spikes_cols)
+
+# Initialize a dictionary to collect spike times for each unit across all trials
+unit_spike_times_dict = {unit: [] for unit in range(int(data_simplified['num_clusters']))}
+
+for i in range(len(data_simplified['trial_spikes']) - 1):
+    for spike in range(len(data_simplified['trial_spikes'][i][0]['cluster_ids'])):
+        unit = data_simplified['trial_spikes'][i][0]['cluster_ids'][spike]
+        spike_time = data_simplified['trial_spikes'][i][0]['spike_times_sec'][spike]
+        unit_spike_times_dict[unit].append(spike_time)
+
+for unit in range(int(data_simplified['num_clusters'])):
+    df_unit_spikes.loc[unit] = {
+        "session": session,
+        "subject_id": subject_id,
+        "electrode_group": 1,
+        "unit": unit,
+        "spike_times": unit_spike_times_dict[unit]
+    }
+
+schema_module.UnitSpikes.insert(df_unit_spikes, skip_duplicates=True, allow_direct_insert=True)
+print("UnitSpikes table populated with data.")
+print(f"Number of rows in UnitSpikes: {len(schema_module.UnitSpikes())}")
+# print("First few rows of UnitSpikes:")
+# print(schema_module.UnitSpikes().fetch())
 
 '''
 dict_keys(['example_waveforms', 'file_names', 'fs', 'num_clusters', 'num_trials', 'trial_durations', 'trial_spikes', 'unique_clusters', 'unit_locations'])
