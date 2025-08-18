@@ -96,15 +96,15 @@ for i in range(183):
     # schema_module.TrialSpikes.insert1(dict(session=session_trial_key[0], subject_id=session_trial_key[1],
     #                                        trial=session_trial_key[2], electrode_group=unit_key[2], unit=unit_key[3],
     #                                        spike_times=data_simplified['trial_spikes'][0][0]['spike_times_sec'][i]), skip_duplicates=True, allow_direct_insert=True)
-
-    df_trial_spikes.loc[i] = {
-        "session": session,
-        "subject_id": subject_id,
-        "electrode_group": 1,
-        "unit": data_simplified['trial_spikes'][0][0]['cluster_ids'][i],
-        "trial": i + 1,  # Assuming trial is indexed by i + 1
-        "spike_times": data_simplified['trial_spikes'][0][0]['spike_times_sec'][i]  # Convert to list
-    }
+    for spike in range(len(data_simplified['trial_spikes'][0][0]['spike_times_sec'][i])):
+        df_trial_spikes.loc[i] = {
+            "session": session,
+            "subject_id": subject_id,
+            "electrode_group": 1,
+            "unit": data_simplified['trial_spikes'][0][0]['cluster_ids'][i],
+            "trial": i + 1,  # Assuming trial is indexed by i + 1
+            "spike_times": data_simplified['trial_spikes'][0][0]['spike_times_sec'][i]  # Convert to list
+        }
 
 
 print("TrialSpikes DataFrame:\n" , df_trial_spikes)
