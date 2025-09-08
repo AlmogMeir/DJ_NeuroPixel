@@ -3,6 +3,7 @@ import numpy as np
 from scipy.io import loadmat
 import sys
 import os
+import datajoint as dj
 
 # Add project root to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -11,6 +12,9 @@ if project_root not in sys.path:
 
 # Import the tables
 from BPOD.mazeEXP import TrialBehavior, LickEvent, schema, exp
+
+EXPt = dj.VirtualModule("EXPt", "talch012_expt", create_tables=True)
+session_key = (EXPt.Session & 'session=2' & 'subject_id=105101').fetch1('session', 'subject_id')
 
 def load_matlab_data(file_path):
     """Load MATLAB file and return the data structure."""
@@ -191,11 +195,18 @@ def calculate_reward_size(raw_events_trial):
                     reward_times = getattr(states, attr_name)
                     if isinstance(reward_times, (list, np.ndarray)) and len(reward_times) >= 2:
                         # Reward size = second time point - first time point
-                        return float(reward_times[1] - reward_times[0])
+                        reward_duration = float(reward_times[1] - reward_times[0])
+                        print(f"  Found reward: {attr_name}, duration = {reward_duration:.3f}s")
+                        return reward_duration
                     elif hasattr(reward_times, '__len__') and len(reward_times) >= 2:
-                        return float(reward_times[1] - reward_times[0])
+                        reward_duration = float(reward_times[1] - reward_times[0])
+                        print(f"  Found reward: {attr_name}, duration = {reward_duration:.3f}s")
+                        return reward_duration
+        
+        print("  No reward found, using default 0.0")
         return 0.0  # Default value if no reward found
-    except:
+    except Exception as e:
+        print(f"  Error calculating reward size: {e}, using default 0.0")
         return 0.0
 
 def populate_behavioral_tables(matlab_file_path):
@@ -229,19 +240,17 @@ def populate_behavioral_tables(matlab_file_path):
     session_data = data[main_key]
     print(f"Using main data structure: {main_key}")
     
-    # Initialize DataFrames
+    # Initialize lists to collect ALL trial data
     trial_behavior_data = []
     lick_events_data = []
     
     # Extract session info (you may need to adjust these based on actual structure)
     try:
-        subject_id = getattr(session_data, 'subject_id', 111)  # Default value
-        session_date = getattr(session_data, 'session_date', '2025-07-21')  # Default
-        session_time = getattr(session_data, 'session_time', '12:04:21')  # Default
+        subject_id = getattr(session_data, 'subject_id', 105101)  # Default value
+        session_date = getattr(session_data, 'session_date', '2025-08-05')  # Default
     except:
-        subject_id = 111
-        session_date = '2025-07-21'
-        session_time = '12:04:21'
+        subject_id = 105101
+        session_date = '2025-08-05'
     
     # Process trials - get trial data from RawEvents.Trial structure
     if hasattr(session_data, 'RawEvents') and hasattr(session_data.RawEvents, 'Trial'):
@@ -300,7 +309,7 @@ def populate_behavioral_tables(matlab_file_path):
             else:
                 trial_end_time = trial_start_time + 10.0  # Default 10 seconds
             
-            print(f"Trial {trial_num}: Start={trial_start_time:.3f}s, End={trial_end_time:.3f}s")
+            # print(f"Trial {trial_num}: Start={trial_start_time:.3f}s, End={trial_end_time:.3f}s")
             
             # Extract blocks information
             blocks = getattr(session_data, 'Blocks', [])  # Adjust based on actual structure
@@ -315,26 +324,32 @@ def populate_behavioral_tables(matlab_file_path):
             # Calculate reward size from RawEvents.Trial.States
             reward_size = calculate_reward_size(raw_trial)
             
-            # Create trial behavior entry (without session_date)
+            # Ensure reward_size is never None/null
+            if reward_size is None or np.isnan(reward_size):
+                reward_size = 0.0
+            
+            print(f"Trial {trial_num}: Start={trial_start_time:.3f}s, End={trial_end_time:.3f}s, Reward={reward_size:.3f}s")
+            
+            # Create trial behavior entry - one record per trial with trial as primary key component
             trial_behavior_entry = {
+                'session': 2,
                 'subject_id': subject_id,
-                'session_time': session_time,
-                'trial': trial_num,
+                'trial': trial_num,  # Now part of primary key: (subject_id, session, trial)
                 'trial_start_time': float(trial_start_time),
                 'trial_end_time': float(trial_end_time),
                 'reward_size': reward_size,
-                'licks': lick_events,  # Store as array
-                'blocks': trial_blocks  # Store as tuple/array
+                'licks': lick_events,  # Store licks for THIS trial
+                'blocks': trial_blocks  # Store blocks for THIS trial
             }
             trial_behavior_data.append(trial_behavior_entry)
             
-            # Add individual lick events (without session_date)
+            # Add individual lick events - each references the specific trial
             for lick in lick_events:
                 lick_event_entry = {
+                    'session': 2,
                     'subject_id': subject_id,
-                    'session_time': session_time,
-                    'trial': trial_num,
-                    'lick_id': lick['lick_id'],
+                    'trial': trial_num,  # Now part of foreign key to TrialBehavior
+                    'lick_id': lick['lick_id'],  # Can be unique within trial
                     'port_number': lick['port_number'],
                     'lick_time': lick['lick_time'],
                     'lick_duration': lick['lick_duration'],
@@ -412,38 +427,100 @@ def insert_data_to_datajoint(df_trial_behavior, df_lick_events):
     """Insert DataFrames into DataJoint tables."""
     
     try:
-        # Get the column names that are actually needed for each table
-        # TrialBehavior table primary key comes from exp.SessionTrial10
-        # We need to determine what columns are actually in the foreign key
+        # First, check what's in the parent table to understand the foreign key structure
+        print("Checking foreign key constraints...")
         
-        # For TrialBehavior, we expect: foreign key columns + the defined attributes
-        trial_behavior_columns = ['subject_id', 'session_time', 'trial',  # Common primary key pattern
+        # Query the parent table to see what sessions exist
+        try:
+            existing_sessions = (exp.Session).fetch(as_dict=True)
+            print(f"Found {len(existing_sessions)} existing sessions in exp.Session")
+            if len(existing_sessions) > 0:
+                print("Sample existing session record:")
+                print(existing_sessions[0])
+                print("Available columns:", list(existing_sessions[0].keys()))
+        except Exception as e:
+            print(f"Could not query existing sessions: {e}")
+        
+        # Updated column structure for corrected table definitions
+        # TrialBehavior primary key: (subject_id, session, trial) where trial is now part of PK
+        trial_behavior_columns = ['subject_id', 'session', 'trial',  # Complete primary key
                                 'trial_start_time', 'trial_end_time', 'reward_size', 'licks', 'blocks']
         
-        # For LickEvent, we expect: TrialBehavior foreign key + lick_id + the defined attributes  
-        lick_event_columns = ['subject_id', 'session_time', 'trial', 'lick_id',
+        # LickEvent references TrialBehavior with full primary key
+        lick_event_columns = ['subject_id', 'session', 'trial', 'lick_id',
                              'port_number', 'lick_time', 'lick_duration', 
                              'lick_start_absolute', 'lick_end_absolute']
         
         # Filter DataFrames to only include relevant columns
         if not df_trial_behavior.empty:
-            # Remove session_date if it exists and filter to only needed columns
-            available_trial_cols = [col for col in trial_behavior_columns if col in df_trial_behavior.columns]
-            df_trial_filtered = df_trial_behavior[available_trial_cols].copy()
+            print("Original TrialBehavior columns:", list(df_trial_behavior.columns))
+            
+            # Check if we need to rename session_time to session or create session column
+            df_trial_filtered = df_trial_behavior.copy()
+            
+            # If session column doesn't exist but session_time does, we may need to map it
+            if 'session' not in df_trial_filtered.columns and 'session_time' in df_trial_filtered.columns:
+                # You may need to adjust this mapping based on your data
+                print("Warning: 'session' column not found, may need to create it from existing data")
+                # Option 1: Use a fixed session number
+                df_trial_filtered['session'] = 1  # or whatever session number you're using
+                # Option 2: Extract session from session_time or other logic
+                # df_trial_filtered['session'] = extract_session_number(df_trial_filtered['session_time'])
+            
+            # Filter to only needed columns that exist
+            available_trial_cols = [col for col in trial_behavior_columns if col in df_trial_filtered.columns]
+            df_trial_filtered = df_trial_filtered[available_trial_cols]
+            
+            print(f"Filtered TrialBehavior columns: {list(df_trial_filtered.columns)}")
+            print("Sample data to be inserted:")
+            print(df_trial_filtered.head(2))
+            
+            # Before inserting, check if the foreign key records exist
+            sample_record = df_trial_filtered.iloc[0]
+            foreign_key_check = {'subject_id': sample_record['subject_id'], 
+                                'session': sample_record['session']}  # Only session and subject_id for exp.Session
+            
+            try:
+                existing_record = (exp.Session & foreign_key_check).fetch()
+                if len(existing_record) == 0:
+                    print(f"WARNING: No matching record found in exp.Session for: {foreign_key_check}")
+                    print("You may need to populate the exp.Session table first.")
+                    return
+                else:
+                    print(f"Foreign key validation passed for sample record: {foreign_key_check}")
+            except Exception as e:
+                print(f"Could not validate foreign key: {e}")
             
             print("Inserting TrialBehavior data...")
-            print(f"Columns being inserted: {list(df_trial_filtered.columns)}")
+            
+            # Debug: Check for any problematic values before insertion
+            print("Checking data quality before insertion...")
+            for i, record in enumerate(df_trial_filtered.to_dict('records')):
+                if record.get('reward_size') is None or pd.isna(record.get('reward_size')):
+                    print(f"WARNING: Record {i} has invalid reward_size: {record.get('reward_size')}")
+                    record['reward_size'] = 0.0  # Fix it
+                # print(f"Record {i}: reward_size = {record['reward_size']}")
+            
             TrialBehavior.insert(df_trial_filtered.to_dict('records'))
             print(f"Inserted {len(df_trial_filtered)} TrialBehavior records")
         
-        # Filter LickEvent data
+        # Similar process for LickEvent data
         if not df_lick_events.empty:
-            # Remove session_date if it exists and filter to only needed columns
-            available_lick_cols = [col for col in lick_event_columns if col in df_lick_events.columns]
-            df_lick_filtered = df_lick_events[available_lick_cols].copy()
+            print("Original LickEvent columns:", list(df_lick_events.columns))
+            
+            df_lick_filtered = df_lick_events.copy()
+            
+            # Handle session column mapping for lick events too
+            if 'session' not in df_lick_filtered.columns and 'session_time' in df_lick_filtered.columns:
+                df_lick_filtered['session'] = 1  # Match the session used for trials
+            
+            # Filter to only needed columns that exist
+            available_lick_cols = [col for col in lick_event_columns if col in df_lick_filtered.columns]
+            df_lick_filtered = df_lick_filtered[available_lick_cols]
+            
+            print(f"Filtered LickEvent columns: {list(df_lick_filtered.columns)}")
             
             print("Inserting LickEvent data...")
-            print(f"Columns being inserted: {list(df_lick_filtered.columns)}")
             LickEvent.insert(df_lick_filtered.to_dict('records'))
             print(f"Inserted {len(df_lick_filtered)} LickEvent records")
             
@@ -452,7 +529,7 @@ def insert_data_to_datajoint(df_trial_behavior, df_lick_events):
     except Exception as e:
         print(f"Error inserting data: {e}")
         print("This might be due to missing foreign key records or column mismatch.")
-        print("Check that the exp.SessionTrial10 records exist for these trials.")
+        print("Check that the exp.Session records exist for these sessions.")
 
 if __name__ == "__main__":
     # Path to the MATLAB file
