@@ -12,17 +12,17 @@ fs = 30000.0  # Sampling frequency in Hz
 prb1 = 'imec0'
 prb2 = 'imec1'
 
+# probe 1
 data = mat73.loadmat('I:\\SM103008\\27112025\\simplified_data\\SM103008_27_11_25_' + prb1 + '.mat')
-# data = mat73.loadmat('I:\\SM103008\\27112025\\simplified_data\\SM103008_27_11_25_' + prb2 + '.mat')
-
 aligned_spike_times = mat73.loadmat('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb1 + '\\' + prb1 + '_ks4\\aligned_spike_times.mat')
-# aligned_spike_times = mat73.loadmat('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb2 + '\\' + prb2 + '_ks4\\aligned_spike_times.mat')
-
-aligned_spike_times = aligned_spike_times['aligned_spike_times']
-
 spike_cluster_ids = np.load('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb1 + '\\' + prb1 + '_ks4\\spike_clusters.npy')
+
+# probe 2
+# data = mat73.loadmat('I:\\SM103008\\27112025\\simplified_data\\SM103008_27_11_25_' + prb2 + '.mat')
+# aligned_spike_times = mat73.loadmat('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb2 + '\\' + prb2 + '_ks4\\aligned_spike_times.mat')
 # spike_cluster_ids = np.load('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb2 + '\\' + prb2 + '_ks4\\spike_clusters.npy')
 
+aligned_spike_times = aligned_spike_times['aligned_spike_times']
 
 # Split spike_cluster_ids according to the trial lengths in aligned_spike_times
 aligned_spike_clusters = []
@@ -87,7 +87,7 @@ for i in range(len(data_simplified['example_waveforms'])):
         "unit": i,
         "waveform": data_simplified['example_waveforms'][i][0],
         "spk_width_ms": 0.0,  # Placeholder, adjust as needed
-        "sampling_fq": 30000.0,  # Placeholder, adjust as needed
+        "sampling_fq": fs,  # Placeholder, adjust as needed
         "waveform_amplitude": data_simplified['example_waveforms'][i][0].max(),  # Example calculation
     }
     
@@ -112,7 +112,11 @@ print(schema_module.Unit())
 # Show the cloumns of the table Trial_spikes
 print("TrialSpikes table columns:", schema_module.TrialSpikes().heading)
 
-for i in range(126, 562, 1):
+# In case the seessionTrial schema is indexing different trials from spikeGLX aligned spike times
+start_trial = 126
+end_trial = len(aligned_spike_times)  # 562
+
+for i in range(start_trial, end_trial, 1):
     # TODO: Add the relevant data to the i trial row.
     # TODO: Create a new row for the tables.
     # current_session_trial_key_string = f'session=1 & subject_id=101104 & trial={i + 1}'
@@ -128,7 +132,7 @@ for i in range(126, 562, 1):
     
     num_of_units = data_simplified['num_clusters']
     # num_of_spikes = len(data_simplified['trial_spikes'][i][0]['spike_times_sec'])
-    num_of_spikes = sum(len(aligned_spike_times[j][0]) for j in range(126, 562))
+    num_of_spikes = sum(len(aligned_spike_times[j][0]) for j in range(start_trial, end_trial))
 
     # print(f"trial {i+1} num of spikes: {len(data_simplified['trial_spikes'][i][0]['cluster_ids'])}")
 
@@ -151,7 +155,7 @@ for i in range(126, 562, 1):
             "subject_id": subject_id,
             "electrode_group": 1,
             "unit": j,
-            "trial": i + 1 - 126,  # Trials are 1-indexed
+            "trial": i + 1 - start_trial,  # Trials are 1-indexed
             "spike_times": spike_times
         }
     # print("TrialSpikes DataFrame:\n" , df_trial_spikes)
