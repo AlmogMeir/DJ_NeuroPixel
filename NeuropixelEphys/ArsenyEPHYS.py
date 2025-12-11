@@ -1,17 +1,19 @@
 import datajoint as dj
 import numpy as np
 import pandas as pd
+# import NeuropixelEphys.dj_connect as dj_connect
+# import NeuropixelEphys.getSchema as getSchema
 import dj_connect
 import getSchema
 # from scipy.io import loadmat
 
 # schema = getSchema.getSchema()
 
-conn = dj_connect.connectToDataJoint("talch012", "simple")
+conn = dj_connect.connectToDataJoint("shany", "shany1906")
 
-schema = dj.Schema("talch012_EPHYS_TEST")
-exp = dj.VirtualModule("EXPt", "talch012_expt", create_tables=True)
-lab = dj.VirtualModule("LABt", "talch012_labt", create_tables=True)
+schema = dj.Schema("shany_EPHYS_TEST")
+exp = dj.VirtualModule("EXP", "shany_exp2", create_tables=True)
+lab = dj.VirtualModule("LAB", "shany_lab", create_tables=True)
 
 # ----------------------------- Table declarations ----------------------
 
@@ -291,14 +293,14 @@ class TrialSpikes(dj.Manual):
     definition = """
         # Spikes for each trial
         -> Unit (foreign key): Unit primary key.
-        -> exp.SessionTrial10 (foreign key): Session trial primary key.
+        -> exp.SessionTrial (foreign key): Session trial primary key.
         ---
         spike_times: longblob   #(s) spike times for each trial, relative to the beginning of the trial" \
         """
     definition = """
         #
         -> Unit
-        -> exp.SessionTrial10
+        -> exp.SessionTrial
         ---
         spike_times: longblob   #(s) spike times for each trial, relative to the beginning of the trial" \
         """

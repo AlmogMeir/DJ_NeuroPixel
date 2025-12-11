@@ -3,6 +3,7 @@ import numpy as np
 from scipy.io import loadmat
 import sys
 import os
+# import datajoint as dj
 
 # Add project root to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -10,7 +11,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Import the tables
-from BPOD.mazeEXP import TrialBehavior, LickEvent, schema, exp
+# from BPOD.mazeEXP import Port, Block, Reward, LickEvent, schema, exp
 
 def load_matlab_data(file_path):
     """Load MATLAB file and return the data structure."""
@@ -191,15 +192,80 @@ def calculate_reward_size(raw_events_trial):
                     reward_times = getattr(states, attr_name)
                     if isinstance(reward_times, (list, np.ndarray)) and len(reward_times) >= 2:
                         # Reward size = second time point - first time point
-                        return float(reward_times[1] - reward_times[0])
+                        reward_duration = float(reward_times[1] - reward_times[0])
+                        print(f"  Found reward: {attr_name}, duration = {reward_duration:.3f}s")
+                        return reward_duration
                     elif hasattr(reward_times, '__len__') and len(reward_times) >= 2:
-                        return float(reward_times[1] - reward_times[0])
+                        reward_duration = float(reward_times[1] - reward_times[0])
+                        print(f"  Found reward: {attr_name}, duration = {reward_duration:.3f}s")
+                        return reward_duration
+        
+        print("  No reward found, using default 0.0")
         return 0.0  # Default value if no reward found
-    except:
+    except Exception as e:
+        print(f"  Error calculating reward size: {e}, using default 0.0")
         return 0.0
 
-def populate_behavioral_tables(matlab_file_path):
-    """Main function to populate behavioral tables from MATLAB data."""
+def extract_reward_info(raw_events_trial, trial_start_time_absolute):
+    """Extract detailed reward information from RawEvents.Trial.States structure.
+    
+    Returns:
+        Dictionary with reward information or None if no reward found
+    """
+    try:
+        if hasattr(raw_events_trial, 'States'):
+            states = raw_events_trial.States
+            
+            # Look for RewardX fields (Reward1, Reward2, etc.)
+            for attr_name in dir(states):
+                if attr_name.startswith('Reward') and not attr_name.endswith('_'):
+                    reward_times = getattr(states, attr_name)
+                    
+                    # Extract port number from Reward name (e.g., Reward1 -> port 1)
+                    try:
+                        port_number = int(attr_name.replace('Reward', ''))
+                    except:
+                        port_number = 1  # Default
+                    
+                    if isinstance(reward_times, (list, np.ndarray)) and len(reward_times) >= 2:
+                        # Reward size = second time point - first time point
+                        reward_size = float(reward_times[1] - reward_times[0])
+                        abs_time = float(reward_times[0])  # Use start time as absolute time
+                        
+                        return {
+                            'port_number': port_number,
+                            'reward_size': reward_size,
+                            'base_reward_size': reward_size,  # May be modified by depletion
+                            'abs_time': abs_time,
+                            'depletion_step': 0,  # To be calculated if depletion is implemented
+                            'depletion_size': 0.0  # base_reward_size / reward_size if depleted
+                        }
+                    elif hasattr(reward_times, '__len__') and len(reward_times) >= 2:
+                        reward_size = float(reward_times[1] - reward_times[0])
+                        abs_time = float(reward_times[0])
+                        
+                        return {
+                            'port_number': port_number,
+                            'reward_size': reward_size,
+                            'base_reward_size': reward_size,
+                            'abs_time': abs_time,
+                            'depletion_step': 0,
+                            'depletion_size': 0.0
+                        }
+        
+        return None  # No reward found
+    except Exception as e:
+        print(f"  Error extracting reward info: {e}")
+        return None
+
+def populate_behavioral_tables(matlab_file_path, subject_id, session):
+    """Main function to populate behavioral tables from MATLAB data.
+    
+    Args:
+        matlab_file_path: Path to the MATLAB .mat file
+        subject_id: Subject ID for the session
+        session: Session number
+    """
     
     # Load MATLAB data
     print(f"Loading MATLAB file: {matlab_file_path}")
@@ -207,7 +273,7 @@ def populate_behavioral_tables(matlab_file_path):
     
     if data is None:
         print("Failed to load MATLAB data")
-        return
+        return None, None, None, None
     
     # Print available keys to understand structure
     print("Available keys in MATLAB data:")
@@ -224,24 +290,24 @@ def populate_behavioral_tables(matlab_file_path):
     
     if main_key is None:
         print("No main data structure found")
-        return
+        return None, None, None, None
     
     session_data = data[main_key]
     print(f"Using main data structure: {main_key}")
     
-    # Initialize DataFrames
-    trial_behavior_data = []
+    # Initialize lists to collect data for each table
+    port_data = []
+    block_data = []
+    reward_data = []
     lick_events_data = []
     
-    # Extract session info (you may need to adjust these based on actual structure)
-    try:
-        subject_id = getattr(session_data, 'subject_id', 111)  # Default value
-        session_date = getattr(session_data, 'session_date', '2025-07-21')  # Default
-        session_time = getattr(session_data, 'session_time', '12:04:21')  # Default
-    except:
-        subject_id = 111
-        session_date = '2025-07-21'
-        session_time = '12:04:21'
+    # Extract port reward sizes from session data
+    # This may be stored in session settings or trial data
+    port_reward_sizes = {}
+    
+    # Track which blocks exist (unique combinations of ports)
+    blocks_seen = {}
+    block_counter = 0
     
     # Process trials - get trial data from RawEvents.Trial structure
     if hasattr(session_data, 'RawEvents') and hasattr(session_data.RawEvents, 'Trial'):
@@ -300,80 +366,118 @@ def populate_behavioral_tables(matlab_file_path):
             else:
                 trial_end_time = trial_start_time + 10.0  # Default 10 seconds
             
-            print(f"Trial {trial_num}: Start={trial_start_time:.3f}s, End={trial_end_time:.3f}s")
-            
-            # Extract blocks information
-            blocks = getattr(session_data, 'Blocks', [])  # Adjust based on actual structure
-            if isinstance(blocks, (list, np.ndarray)) and len(blocks) > trial_idx:
-                trial_blocks = blocks[trial_idx] if len(blocks) > trial_idx else []
-            else:
-                trial_blocks = []
+            # print(f"Trial {trial_num}: Start={trial_start_time:.3f}s, End={trial_end_time:.3f}s")
             
             # Extract lick events from RawEvents.Trial.Events
             lick_events = extract_lick_events(raw_trial, trial_start_time)
             
-            # Calculate reward size from RawEvents.Trial.States
-            reward_size = calculate_reward_size(raw_trial)
+            # Extract reward information from States
+            reward_info = extract_reward_info(raw_trial, trial_start_time)
             
-            # Create trial behavior entry (without session_date)
-            trial_behavior_entry = {
-                'subject_id': subject_id,
-                'session_time': session_time,
-                'trial': trial_num,
-                'trial_start_time': float(trial_start_time),
-                'trial_end_time': float(trial_end_time),
-                'reward_size': reward_size,
-                'licks': lick_events,  # Store as array
-                'blocks': trial_blocks  # Store as tuple/array
-            }
-            trial_behavior_data.append(trial_behavior_entry)
+            # Add reward data for this trial if reward was given
+            if reward_info:
+                reward_entry = {
+                    'subject_id': subject_id,
+                    'session': session,
+                    'trial': trial_num,
+                    'port_number': reward_info['port_number'],
+                    'reward_size': reward_info['reward_size'],
+                    'abs_time': reward_info['abs_time'],
+                    'depletion_step': reward_info.get('depletion_step', 0),
+                    'depletion_size': reward_info.get('depletion_size', 0.0)
+                }
+                reward_data.append(reward_entry)
+                
+                # Track port reward sizes
+                port_num = reward_info['port_number']
+                if port_num not in port_reward_sizes:
+                    port_reward_sizes[port_num] = reward_info.get('base_reward_size', reward_info['reward_size'])
             
-            # Add individual lick events (without session_date)
+            # Add individual lick events - each references the specific trial
             for lick in lick_events:
+                # Determine if lick is early (before IRI end)
+                is_early = lick.get('is_early', False)
+                
                 lick_event_entry = {
                     'subject_id': subject_id,
-                    'session_time': session_time,
+                    'session': session,
                     'trial': trial_num,
                     'lick_id': lick['lick_id'],
                     'port_number': lick['port_number'],
                     'lick_time': lick['lick_time'],
                     'lick_duration': lick['lick_duration'],
                     'lick_start_absolute': lick['lick_start_absolute'],
-                    'lick_end_absolute': lick['lick_end_absolute']
+                    'lick_end_absolute': lick['lick_end_absolute'],
+                    'is_early': is_early
                 }
                 lick_events_data.append(lick_event_entry)
+                
+                # Track ports from licks
+                port_num = lick['port_number']
+                if port_num not in port_reward_sizes:
+                    port_reward_sizes[port_num] = 0.0  # Default, will be updated if we find reward info
+    
+    # Create Port data from discovered ports
+    for port_num, reward_size in port_reward_sizes.items():
+        port_entry = {
+            'subject_id': subject_id,
+            'session': session,
+            'port_number': port_num,
+            'port_reward_size': reward_size
+        }
+        port_data.append(port_entry)
     
     # Create DataFrames
-    df_trial_behavior = pd.DataFrame(trial_behavior_data)
+    df_port = pd.DataFrame(port_data)
+    df_block = pd.DataFrame(block_data)
+    df_reward = pd.DataFrame(reward_data)
     df_lick_events = pd.DataFrame(lick_events_data)
     
     print(f"\nCreated DataFrames:")
-    print(f"TrialBehavior: {len(df_trial_behavior)} rows")
+    print(f"Port: {len(df_port)} rows")
+    print(f"Block: {len(df_block)} rows")
+    print(f"Reward: {len(df_reward)} rows")
     print(f"LickEvents: {len(df_lick_events)} rows")
     
     # Display sample data
-    if not df_trial_behavior.empty:
-        print("\nSample TrialBehavior data:")
-        print(df_trial_behavior.head())
+    if not df_port.empty:
+        print("\nPort data:")
+        print(df_port)
+    
+    if not df_reward.empty:
+        print("\nSample Reward data:")
+        print(df_reward.head())
     
     if not df_lick_events.empty:
         print("\nSample LickEvents data:")
         print(df_lick_events.head())
     
-    return df_trial_behavior, df_lick_events
+    return df_port, df_block, df_reward, df_lick_events
 
-def save_dataframes_to_csv(df_trial_behavior, df_lick_events, output_dir="./output"):
+def save_dataframes_to_csv(df_port, df_block, df_reward, df_lick_events, output_dir="./output"):
     """Save DataFrames to CSV files in the specified directory."""
     
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     
     try:
-        # Save TrialBehavior DataFrame
-        if not df_trial_behavior.empty:
-            trial_behavior_path = os.path.join(output_dir, "trial_behavior.csv")
-            df_trial_behavior.to_csv(trial_behavior_path, index=False)
-            print(f"Saved TrialBehavior data to: {trial_behavior_path}")
+        # Save Port DataFrame
+        if not df_port.empty:
+            port_path = os.path.join(output_dir, "port.csv")
+            df_port.to_csv(port_path, index=False)
+            print(f"Saved Port data to: {port_path}")
+        
+        # Save Block DataFrame
+        if not df_block.empty:
+            block_path = os.path.join(output_dir, "block.csv")
+            df_block.to_csv(block_path, index=False)
+            print(f"Saved Block data to: {block_path}")
+        
+        # Save Reward DataFrame
+        if not df_reward.empty:
+            reward_path = os.path.join(output_dir, "reward.csv")
+            df_reward.to_csv(reward_path, index=False)
+            print(f"Saved Reward data to: {reward_path}")
         
         # Save LickEvents DataFrame
         if not df_lick_events.empty:
@@ -386,12 +490,20 @@ def save_dataframes_to_csv(df_trial_behavior, df_lick_events, output_dir="./outp
         with open(summary_path, 'w') as f:
             f.write("Data Processing Summary\n")
             f.write("=====================\n\n")
-            f.write(f"TrialBehavior records: {len(df_trial_behavior)}\n")
+            f.write(f"Port records: {len(df_port)}\n")
+            f.write(f"Block records: {len(df_block)}\n")
+            f.write(f"Reward records: {len(df_reward)}\n")
             f.write(f"LickEvents records: {len(df_lick_events)}\n\n")
             
-            if not df_trial_behavior.empty:
-                f.write("TrialBehavior columns:\n")
-                for col in df_trial_behavior.columns:
+            if not df_port.empty:
+                f.write("Port columns:\n")
+                for col in df_port.columns:
+                    f.write(f"  - {col}\n")
+                f.write("\n")
+            
+            if not df_reward.empty:
+                f.write("Reward columns:\n")
+                for col in df_reward.columns:
                     f.write(f"  - {col}\n")
                 f.write("\n")
             
@@ -406,65 +518,75 @@ def save_dataframes_to_csv(df_trial_behavior, df_lick_events, output_dir="./outp
     except Exception as e:
         print(f"Error saving CSV files: {e}")
 
-    return df_trial_behavior, df_lick_events
-
-def insert_data_to_datajoint(df_trial_behavior, df_lick_events):
+def insert_data_to_datajoint(df_port, df_block, df_reward, df_lick_events):
     """Insert DataFrames into DataJoint tables."""
     
     try:
-        # Get the column names that are actually needed for each table
-        # TrialBehavior table primary key comes from exp.SessionTrial10
-        # We need to determine what columns are actually in the foreign key
+        print("\nInserting data into DataJoint tables...")
         
-        # For TrialBehavior, we expect: foreign key columns + the defined attributes
-        trial_behavior_columns = ['subject_id', 'session_time', 'trial',  # Common primary key pattern
-                                'trial_start_time', 'trial_end_time', 'reward_size', 'licks', 'blocks']
+        # Insert Port data first (no foreign key dependencies)
+        if not df_port.empty:
+            print(f"\nInserting {len(df_port)} Port records...")
+            print("Sample Port data:")
+            print(df_port.head())
+            Port.insert(df_port.to_dict('records'), skip_duplicates=True)
+            print(f"✓ Inserted Port records")
         
-        # For LickEvent, we expect: TrialBehavior foreign key + lick_id + the defined attributes  
-        lick_event_columns = ['subject_id', 'session_time', 'trial', 'lick_id',
-                             'port_number', 'lick_time', 'lick_duration', 
-                             'lick_start_absolute', 'lick_end_absolute']
+        # Insert Block data (depends on Port)
+        if not df_block.empty:
+            print(f"\nInserting {len(df_block)} Block records...")
+            print("Sample Block data:")
+            print(df_block.head())
+            Block.insert(df_block.to_dict('records'), skip_duplicates=True)
+            print(f"✓ Inserted Block records")
         
-        # Filter DataFrames to only include relevant columns
-        if not df_trial_behavior.empty:
-            # Remove session_date if it exists and filter to only needed columns
-            available_trial_cols = [col for col in trial_behavior_columns if col in df_trial_behavior.columns]
-            df_trial_filtered = df_trial_behavior[available_trial_cols].copy()
-            
-            print("Inserting TrialBehavior data...")
-            print(f"Columns being inserted: {list(df_trial_filtered.columns)}")
-            TrialBehavior.insert(df_trial_filtered.to_dict('records'))
-            print(f"Inserted {len(df_trial_filtered)} TrialBehavior records")
+        # Insert Reward data (depends on exp.SessionTrial and Port)
+        if not df_reward.empty:
+            print(f"\nInserting {len(df_reward)} Reward records...")
+            print("Sample Reward data:")
+            print(df_reward.head(2))
+            Reward.insert(df_reward.to_dict('records'), skip_duplicates=True)
+            print(f"✓ Inserted Reward records")
         
-        # Filter LickEvent data
+        # Insert LickEvent data (depends on exp.SessionTrial and Port)
         if not df_lick_events.empty:
-            # Remove session_date if it exists and filter to only needed columns
-            available_lick_cols = [col for col in lick_event_columns if col in df_lick_events.columns]
-            df_lick_filtered = df_lick_events[available_lick_cols].copy()
+            print(f"\nInserting {len(df_lick_events)} LickEvent records...")
+            print("Sample LickEvent data:")
+            print(df_lick_events.head(2))
+            LickEvent.insert(df_lick_events.to_dict('records'), skip_duplicates=True)
+            print(f"✓ Inserted LickEvent records")
             
-            print("Inserting LickEvent data...")
-            print(f"Columns being inserted: {list(df_lick_filtered.columns)}")
-            LickEvent.insert(df_lick_filtered.to_dict('records'))
-            print(f"Inserted {len(df_lick_filtered)} LickEvent records")
-            
-        print("Data insertion completed successfully!")
+        print("\n✓ Data insertion completed successfully!")
         
     except Exception as e:
-        print(f"Error inserting data: {e}")
-        print("This might be due to missing foreign key records or column mismatch.")
-        print("Check that the exp.SessionTrial10 records exist for these trials.")
+        print(f"\n✗ Error inserting data: {e}")
+        import traceback
+        traceback.print_exc()
+        print("\nTroubleshooting tips:")
+        print("1. Check that exp.Session records exist for this session")
+        print("2. Check that exp.SessionTrial records exist for all trials")
+        print("3. Verify column names match table definitions")
 
 if __name__ == "__main__":
+    # Configuration
+    subject_id = 105101  # Update this with your subject ID
+    session = 2  # Update this with your session number
+    
     # Path to the MATLAB file
     matlab_file = "NPC1_maze_4pairs_AnA_shany_20250721_120421.mat"
     matlab_path = os.path.join(os.path.dirname(__file__), matlab_file)
     
     # Populate tables
-    df_trial_behavior, df_lick_events = populate_behavioral_tables(matlab_path)
+    df_port, df_block, df_reward, df_lick_events = populate_behavioral_tables(
+        matlab_path, subject_id, session
+    )
     
-    # Save DataFrames to CSV files
-    output_directory = os.path.join(os.path.dirname(__file__), "output")
-    save_dataframes_to_csv(df_trial_behavior, df_lick_events, output_directory)
-    
-    # Uncomment the next line to actually insert data into DataJoint
-    insert_data_to_datajoint(df_trial_behavior, df_lick_events)
+    if df_port is not None:
+        # Save DataFrames to CSV files
+        output_directory = os.path.join(os.path.dirname(__file__), "output")
+        save_dataframes_to_csv(df_port, df_block, df_reward, df_lick_events, output_directory)
+        
+        # Uncomment the next line to actually insert data into DataJoint
+        # insert_data_to_datajoint(df_port, df_block, df_reward, df_lick_events)
+    else:
+        print("Failed to process MATLAB data")

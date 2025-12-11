@@ -1,36 +1,65 @@
 import numpy as np
 import pandas as pd
 import datajoint as dj
+# import NeuropixelEphys.dj_connect as dj_connect
+# import NeuropixelEphys.getSchema as getSchema
 import dj_connect
 import getSchema
 import mat73
 
-data = mat73.loadmat('simplified_spike_data.mat')
+fs = 30000.0  # Sampling frequency in Hz
+
+prb1 = 'imec0'
+prb2 = 'imec1'
+
+data = mat73.loadmat('I:\\SM103008\\27112025\\simplified_data\\SM103008_27_11_25_' + prb1 + '.mat')
+# data = mat73.loadmat('I:\\SM103008\\27112025\\simplified_data\\SM103008_27_11_25_' + prb2 + '.mat')
+
+aligned_spike_times = mat73.loadmat('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb1 + '\\' + prb1 + '_ks4\\aligned_spike_times.mat')
+# aligned_spike_times = mat73.loadmat('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb2 + '\\' + prb2 + '_ks4\\aligned_spike_times.mat')
+
+aligned_spike_times = aligned_spike_times['aligned_spike_times']
+
+spike_cluster_ids = np.load('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb1 + '\\' + prb1 + '_ks4\\spike_clusters.npy')
+# spike_cluster_ids = np.load('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb2 + '\\' + prb2 + '_ks4\\spike_clusters.npy')
+
+
+# Split spike_cluster_ids according to the trial lengths in aligned_spike_times
+aligned_spike_clusters = []
+current_index = 0
+
+for i in range(len(aligned_spike_times)):
+    trial_length = len(aligned_spike_times[i][0])
+    trial_clusters = spike_cluster_ids[current_index:current_index + trial_length]
+    aligned_spike_clusters.append(trial_clusters)
+    current_index += trial_length
+
 data_simplified = data['simplified_data']
-conn = dj_connect.connectToDataJoint("talch012", "simple")
+conn = dj_connect.connectToDataJoint("shany", "shany1906")
 
 schema = getSchema.getSchema("EPHYS_TEST")
-schema_module = dj.VirtualModule("schema_module", "talch012_EPHYS_TEST", create_tables=True)
+schema_module = dj.VirtualModule("schema_module", "shany_EPHYS_TEST", create_tables=True)
 print(schema.list_tables())
-exp_schema = getSchema.getSchema("EXPt")
-EXPt = dj.VirtualModule("EXPt", "talch012_expt", create_tables=True)
+exp_schema = getSchema.getSchema("EXP")
+EXP = dj.VirtualModule("EXP", "shany_exp2", create_tables=True)
 # print(schema_module.ElectrodeGroup())
 
 
 print("Schema:", schema)
 print("Tables in the schema:", schema.list_tables())
 
-print("EXPt schema:", EXPt)
-print("EXPt tables:", exp_schema.list_tables())
-print("EXPt.SessionTrial10 table:", (EXPt.SessionTrial10 & 'session=1' & 'subject_id=101104').fetch())
+print("EXP schema:", EXP)
+print("EXP tables:", exp_schema.list_tables())
+print("EXP.SessionTrial table:", (EXP.SessionTrial & 'session=1' & 'subject_id=103008').fetch())
 
 session = 1
-subject_id = 101104
+subject_id = 103008
 
 schema_module.Probe.insert1({1, "Neuropixels 2.0", "Test probe"}, skip_duplicates=True)
 
-session_key = (EXPt.Session & 'session=1' & 'subject_id=101104').fetch1('session', 'subject_id')
+session_key = (EXP.Session & 'session=1' & 'subject_id=103008').fetch1('session', 'subject_id')
 probe_key = (schema_module.Probe & 'probe_part_no=1').fetch1('probe_part_no')
+# probe_key = (schema_module.Probe & 'probe_part_no=2').fetch1('probe_part_no')
 
 schema_module.ElectrodeGroup.insert1(dict(session=session_key[0], subject_id=session_key[1], electrode_group=1, probe_part_no=probe_key), skip_duplicates=True)
 
@@ -58,7 +87,7 @@ for i in range(len(data_simplified['example_waveforms'])):
         "unit": i,
         "waveform": data_simplified['example_waveforms'][i][0],
         "spk_width_ms": 0.0,  # Placeholder, adjust as needed
-        "sampling_fq": data_simplified['fs'],
+        "sampling_fq": 30000.0,  # Placeholder, adjust as needed
         "waveform_amplitude": data_simplified['example_waveforms'][i][0].max(),  # Example calculation
     }
     
@@ -83,7 +112,7 @@ print(schema_module.Unit())
 # Show the cloumns of the table Trial_spikes
 print("TrialSpikes table columns:", schema_module.TrialSpikes().heading)
 
-for i in range(len(data_simplified['trial_spikes']) - 1):
+for i in range(126, 562, 1):
     # TODO: Add the relevant data to the i trial row.
     # TODO: Create a new row for the tables.
     # current_session_trial_key_string = f'session=1 & subject_id=101104 & trial={i + 1}'
@@ -98,7 +127,8 @@ for i in range(len(data_simplified['trial_spikes']) - 1):
     #                                        spike_times=data_simplified['trial_spikes'][0][0]['spike_times_sec'][i]), skip_duplicates=True, allow_direct_insert=True)
     
     num_of_units = data_simplified['num_clusters']
-    num_of_spikes = len(data_simplified['trial_spikes'][i][0]['spike_times_sec'])
+    # num_of_spikes = len(data_simplified['trial_spikes'][i][0]['spike_times_sec'])
+    num_of_spikes = sum(len(aligned_spike_times[j][0]) for j in range(126, 562))
 
     # print(f"trial {i+1} num of spikes: {len(data_simplified['trial_spikes'][i][0]['cluster_ids'])}")
 
@@ -106,9 +136,9 @@ for i in range(len(data_simplified['trial_spikes']) - 1):
     spike_times_dict = {unit: [] for unit in range(int(num_of_units))}
     
     # Populate the spike times for each unit in the trial
-    for spike in range(len(data_simplified['trial_spikes'][i][0]['cluster_ids'])):
-        unit = data_simplified['trial_spikes'][i][0]['cluster_ids'][spike]
-        spike_times_dict[unit].append(data_simplified['trial_spikes'][i][0]['spike_times_sec'][spike])
+    for spike in range(len(aligned_spike_times[i][0])):
+        unit = aligned_spike_clusters[i][spike]
+        spike_times_dict[unit].append(aligned_spike_times[i][0][spike] / fs)
         
     for j in range(int(num_of_units)):
         if j in spike_times_dict:
@@ -121,45 +151,40 @@ for i in range(len(data_simplified['trial_spikes']) - 1):
             "subject_id": subject_id,
             "electrode_group": 1,
             "unit": j,
-            "trial": i + 1,  # Trials are 1-indexed
+            "trial": i + 1 - 126,  # Trials are 1-indexed
             "spike_times": spike_times
         }
     # print("TrialSpikes DataFrame:\n" , df_trial_spikes)
     schema_module.TrialSpikes.insert(df_trial_spikes, skip_duplicates=True, allow_direct_insert=True)
 
 
-# print("TrialSpikes DataFrame:\n" , df_trial_spikes)
-# schema_module.TrialSpikes.insert(df_trial_spikes, skip_duplicates=True, allow_direct_insert=True)
-
 print("TrialSpikes table populated with data.")
 print(f"Number of rows in TrialSpikes: {len(schema_module.TrialSpikes())}")
-# print("First few rows of TrialSpikes:")
-# print(schema_module.TrialSpikes().fetch())
 
 unit_spikes_cols = ["session", "subject_id", "electrode_group", "unit", "spike_times"]
 df_unit_spikes = pd.DataFrame(columns=unit_spikes_cols)
 
-# Initialize a dictionary to collect spike times for each unit across all trials
-unit_spike_times_dict = {unit: [] for unit in range(int(data_simplified['num_clusters']))}
+# # Initialize a dictionary to collect spike times for each unit across all trials
+# unit_spike_times_dict = {unit: [] for unit in range(int(data_simplified['num_clusters']))}
 
-for i in range(len(data_simplified['trial_spikes']) - 1):
-    for spike in range(len(data_simplified['trial_spikes'][i][0]['cluster_ids'])):
-        unit = data_simplified['trial_spikes'][i][0]['cluster_ids'][spike]
-        spike_time = data_simplified['trial_spikes'][i][0]['spike_times_sec'][spike]
-        unit_spike_times_dict[unit].append(spike_time)
+# for i in range(len(aligned_spike_times) - 1):
+#     for spike in range(len(aligned_spike_times[i][0])):
+#         unit = aligned_spike_clusters[i][spike]
+#         spike_time = aligned_spike_times[i][0][spike] / fs
+#         unit_spike_times_dict[unit].append(spike_time)
 
-for unit in range(int(data_simplified['num_clusters'])):
-    df_unit_spikes.loc[unit] = {
-        "session": session,
-        "subject_id": subject_id,
-        "electrode_group": 1,
-        "unit": unit,
-        "spike_times": unit_spike_times_dict[unit]
-    }
+# for unit in range(int(data_simplified['num_clusters'])):
+#     df_unit_spikes.loc[unit] = {
+#         "session": session,
+#         "subject_id": subject_id,
+#         "electrode_group": 1,
+#         "unit": unit,
+#         "spike_times": unit_spike_times_dict[unit]
+#     }
 
-schema_module.UnitSpikes.insert(df_unit_spikes, skip_duplicates=True, allow_direct_insert=True)
-print("UnitSpikes table populated with data.")
-print(f"Number of rows in UnitSpikes: {len(schema_module.UnitSpikes())}")
+# schema_module.UnitSpikes.insert(df_unit_spikes, skip_duplicates=True, allow_direct_insert=True)
+# print("UnitSpikes table populated with data.")
+# print(f"Number of rows in UnitSpikes: {len(schema_module.UnitSpikes())}")
 # print("First few rows of UnitSpikes:")
 # print(schema_module.UnitSpikes().fetch())
 
