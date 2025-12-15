@@ -1,7 +1,7 @@
 import datajoint as dj
 
 from readers import probe_geometry
-import dj_connect
+import NeuropixelEphys.dj_connect as dj_connect
 
 
 log = dj.logger

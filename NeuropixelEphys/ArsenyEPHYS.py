@@ -11,7 +11,7 @@ import getSchema
 
 conn = dj_connect.connectToDataJoint("shany", "shany1906")
 
-schema = dj.Schema("shany_EPHYS_TEST")
+schema = dj.Schema("shany_EPHYS2")
 exp = dj.VirtualModule("EXP", "shany_exp2", create_tables=True)
 lab = dj.VirtualModule("LAB", "shany_lab", create_tables=True)
 
@@ -56,17 +56,17 @@ class ProbeMapping(dj.Imported):
 class ElectrodeGroup(dj.Manual):
     """Electrode group table.
     Attributes:
-        exp.Session (foreign key): Session primary key.
+        exp.SessionEpoch (foreign key): SessionEpoch primary key.
         electrode_group (tinyint): Shank number.
         -> Probe (foreign key): Probe primary key.
     """
 
     definition = """
         # Electrode
-        -> exp.Session
+        -> exp.SessionEpoch
         electrode_group : tinyint   # shank number
-        ---
         -> Probe
+        ---
         """
 
 @schema
@@ -283,7 +283,7 @@ methods(Access=protected)
             end
             
         end
-        fprintf('Populated %d units recorded from animal %d  on %s', counter, key.subject_id, fetch1(EXP.Session & key,'session_date'))
+        fprintf('Populated %d units recorded from animal %d  on %s', counter, key.subject_id, fetch1(EXP.SessionEpoch & key,'session_date'))
     end
 end
 """

@@ -22,7 +22,7 @@ subject_id = 103008
 # schema_module.ElectrodeGroup.drop()
 # schema_module.Unit.drop()
 # schema_module.WaveformSet.drop()
-schema_module.TrialSpikes.drop()
+# schema_module.TrialSpikes.drop()
 # schema_module.CellType.drop()
-# schema_module.UnitQualityType.drop()
+schema_module.UnitQualityType.drop()
 

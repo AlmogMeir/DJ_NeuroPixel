@@ -13,14 +13,14 @@ prb1 = 'imec0'
 prb2 = 'imec1'
 
 # probe 1
-data = mat73.loadmat('I:\\SM103008\\27112025\\simplified_data\\SM103008_27_11_25_' + prb1 + '.mat')
-aligned_spike_times = mat73.loadmat('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb1 + '\\' + prb1 + '_ks4\\aligned_spike_times.mat')
-spike_cluster_ids = np.load('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb1 + '\\' + prb1 + '_ks4\\spike_clusters.npy')
+# data = mat73.loadmat('I:\\SM103008\\27112025\\simplified_data\\SM103008_27_11_25_' + prb1 + '.mat')
+# aligned_spike_times = mat73.loadmat('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb1 + '\\' + prb1 + '_ks4\\aligned_spike_times.mat')
+# spike_cluster_ids = np.load('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb1 + '\\' + prb1 + '_ks4\\spike_clusters.npy')
 
 # probe 2
-# data = mat73.loadmat('I:\\SM103008\\27112025\\simplified_data\\SM103008_27_11_25_' + prb2 + '.mat')
-# aligned_spike_times = mat73.loadmat('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb2 + '\\' + prb2 + '_ks4\\aligned_spike_times.mat')
-# spike_cluster_ids = np.load('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb2 + '\\' + prb2 + '_ks4\\spike_clusters.npy')
+data = mat73.loadmat('I:\\SM103008\\27112025\\simplified_data\\SM103008_27_11_25_' + prb2 + '.mat')
+aligned_spike_times = mat73.loadmat('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb2 + '\\' + prb2 + '_ks4\\aligned_spike_times.mat')
+spike_cluster_ids = np.load('I:\\SM103008\\27112025\\catgt\\catgt_Dual_SC_27112025_g0\\Dual_SC_27112025_g0_' + prb2 + '\\' + prb2 + '_ks4\\spike_clusters.npy')
 
 aligned_spike_times = aligned_spike_times['aligned_spike_times']
 
@@ -37,11 +37,11 @@ for i in range(len(aligned_spike_times)):
 data_simplified = data['simplified_data']
 conn = dj_connect.connectToDataJoint("shany", "shany1906")
 
-schema = getSchema.getSchema("EPHYS_TEST")
-schema_module = dj.VirtualModule("schema_module", "shany_EPHYS_TEST", create_tables=True)
+schema = getSchema.getSchema("EPHYS2")
+schema_module = dj.VirtualModule("schema_module", "shany_EPHYS2", create_tables=True)
 print(schema.list_tables())
-exp_schema = getSchema.getSchema("EXP")
-EXP = dj.VirtualModule("EXP", "shany_exp2", create_tables=True)
+exp_schema = getSchema.getSchema("EXP2")
+EXP = dj.VirtualModule("EXP2", "shany_exp2", create_tables=True)
 # print(schema_module.ElectrodeGroup())
 
 
@@ -55,26 +55,29 @@ print("EXP.SessionTrial table:", (EXP.SessionTrial & 'session=1' & 'subject_id=1
 session = 1
 subject_id = 103008
 
-schema_module.Probe.insert1({1, "Neuropixels 2.0", "Test probe"}, skip_duplicates=True)
+# schema_module.Probe.insert1({1, "Neuropixels 2.0", "Test probe"}, skip_duplicates=True)
+schema_module.Probe.insert1({2, "Neuropixels 2.0", "Test probe"}, skip_duplicates=True)
 
-session_key = (EXP.Session & 'session=1' & 'subject_id=103008').fetch1('session', 'subject_id')
-probe_key = (schema_module.Probe & 'probe_part_no=1').fetch1('probe_part_no')
-# probe_key = (schema_module.Probe & 'probe_part_no=2').fetch1('probe_part_no')
+session_key = (EXP.SessionEpoch & 'session=1' & 'subject_id=103008' & 'session_epoch_number=1' & 'session_epoch_type="behav_only"').fetch1('session', 'subject_id', 'session_epoch_number')
+# session_key = (EXP.SessionEpoch & 'session=1' & 'subject_id=103008').fetch1('session', 'subject_id')
 
-schema_module.ElectrodeGroup.insert1(dict(session=session_key[0], subject_id=session_key[1], electrode_group=1, probe_part_no=probe_key), skip_duplicates=True)
+# probe_key = (schema_module.Probe & 'probe_part_no=1').fetch1('probe_part_no')
+probe_key = (schema_module.Probe & 'probe_part_no=2').fetch1('probe_part_no')
+
+schema_module.ElectrodeGroup.insert1(dict(session=session_key[0], subject_id=session_key[1], session_epoch_number=1, session_epoch_type="behav_only", electrode_group=1, probe_part_no=probe_key), skip_duplicates=True)
 
 # Create empty DataFrames for the relevant tables in the schema
 
 # Using columns from the foreign keys (Session and ElectrodeGroup) plus unit fields.
-unit_cols = ["session", "subject_id", "electrode_group", "unit", "unit_uid", "unit_quality", "unit_channel", "roi_number"]
+unit_cols = ["session", "subject_id", "session_epoch_number", "session_epoch_type", "electrode_group", "probe_part_no", "unit", "unit_uid", "unit_quality", "unit_channel", "roi_number"]
 df_unit = pd.DataFrame(columns=unit_cols)
 
 # Waveform set columns
-waveform_cols = ["session", "subject_id", "electrode_group", "unit", "waveform", "spk_width_ms", "sampling_fq", "waveform_amplitude"]
+waveform_cols = ["session", "subject_id", "session_epoch_number", "session_epoch_type", "electrode_group", "probe_part_no", "unit", "waveform", "spk_width_ms", "sampling_fq", "waveform_amplitude"]
 df_waveform = pd.DataFrame(columns=waveform_cols)
 
 # (includes columns from Unit and SessionTrial plus spike_times).
-trial_spikes_cols = ["session", "subject_id", "electrode_group", "unit", "trial", "spike_times"]
+trial_spikes_cols = ["session", "subject_id", "session_epoch_number", "session_epoch_type", "electrode_group", "probe_part_no", "unit", "trial", "spike_times"]
 df_trial_spikes = pd.DataFrame(columns=trial_spikes_cols)
 
 for i in range(len(data_simplified['example_waveforms'])):
@@ -83,7 +86,10 @@ for i in range(len(data_simplified['example_waveforms'])):
     df_waveform.loc[i] = {
         "session": session,
         "subject_id": subject_id,
+        "session_epoch_number": 1,
+        "session_epoch_type": "behav_only",
         "electrode_group": 1,
+        "probe_part_no": probe_key,
         "unit": i,
         "waveform": data_simplified['example_waveforms'][i][0],
         "spk_width_ms": 0.0,  # Placeholder, adjust as needed
@@ -94,7 +100,10 @@ for i in range(len(data_simplified['example_waveforms'])):
     df_unit.loc[i] = {
         "session": session,
         "subject_id": subject_id,
+        "session_epoch_number": 1,
+        "session_epoch_type": "behav_only",
         "electrode_group": 1,
+        "probe_part_no": probe_key,
         "unit": i,
         "unit_uid": f"{subject_id}{session}{i}",
         "unit_quality": "good",  # Placeholder, adjust as needed
@@ -114,7 +123,7 @@ print("TrialSpikes table columns:", schema_module.TrialSpikes().heading)
 
 # In case the seessionTrial schema is indexing different trials from spikeGLX aligned spike times
 start_trial = 126
-end_trial = len(aligned_spike_times)  # 562
+end_trial = 563
 
 for i in range(start_trial, end_trial, 1):
     # TODO: Add the relevant data to the i trial row.
@@ -142,7 +151,7 @@ for i in range(start_trial, end_trial, 1):
     # Populate the spike times for each unit in the trial
     for spike in range(len(aligned_spike_times[i][0])):
         unit = aligned_spike_clusters[i][spike]
-        spike_times_dict[unit].append(aligned_spike_times[i][0][spike] / fs)
+        spike_times_dict[unit].append((aligned_spike_times[i][0][spike] / fs).astype('float32')) # converted to seconds and single precision
         
     for j in range(int(num_of_units)):
         if j in spike_times_dict:
@@ -153,7 +162,10 @@ for i in range(start_trial, end_trial, 1):
         df_trial_spikes.loc[j] = {
             "session": session,
             "subject_id": subject_id,
+            "session_epoch_number": 1,
+            "session_epoch_type": "behav_only",
             "electrode_group": 1,
+            "probe_part_no": probe_key,
             "unit": j,
             "trial": i + 1 - start_trial,  # Trials are 1-indexed
             "spike_times": spike_times

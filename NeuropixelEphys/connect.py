@@ -15,7 +15,7 @@
 #     return conn
 
 import datajoint as dj
-import dj_connect
+import NeuropixelEphys.dj_connect as dj_connect
 
 def connect():
     """Connect to DataJoint database using provided credentials if not already connected."""
