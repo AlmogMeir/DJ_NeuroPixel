@@ -9,7 +9,7 @@ import getSchema
 
 conn = dj_connect.connectToDataJoint("talch012", "simple")
 
-schema = dj.Schema("talch012_EPHYS_TEST")
+schema = dj.Schema("talch012_EPHYS_TEST2")
 exp = dj.VirtualModule("EXPt", "talch012_expt", create_tables=True)
 lab = dj.VirtualModule("LABt", "talch012_labt", create_tables=True)
 

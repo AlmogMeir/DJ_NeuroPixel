@@ -25,11 +25,11 @@ print("EXPt tables:", exp_schema.list_tables())
 print("EXPt.SessionTrial10 table:", (EXPt.SessionTrial10 & 'session=1' & 'subject_id=101104').fetch())
 
 session = 1
-subject_id = 101104
+subject_id = 105101
 
 schema_module.Probe.insert1({1, "Neuropixels 2.0", "Test probe"}, skip_duplicates=True)
 
-session_key = (EXPt.Session & 'session=1' & 'subject_id=101104').fetch1('session', 'subject_id')
+session_key = (EXPt.Session & 'session=1' & 'subject_id=105101').fetch1('session', 'subject_id')
 probe_key = (schema_module.Probe & 'probe_part_no=1').fetch1('probe_part_no')
 
 schema_module.ElectrodeGroup.insert1(dict(session=session_key[0], subject_id=session_key[1], electrode_group=1, probe_part_no=probe_key), skip_duplicates=True)
